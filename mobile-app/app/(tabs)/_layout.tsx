@@ -1,9 +1,37 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-import { Platform } from 'react-native';
+import { Tabs, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Platform, ActivityIndicator, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../../firebase';
 
 export default function TabLayout() {
+    const [checked, setChecked] = useState(false);
+    const [authed, setAuthed] = useState(false);
+    const router = useRouter();
+
+    useEffect(() => {
+        const unsub = onAuthStateChanged(auth, (user) => {
+            if (user) {
+                setAuthed(true);
+            } else {
+                router.replace('/');
+            }
+            setChecked(true);
+        });
+        return () => unsub();
+    }, []);
+
+    if (!checked) {
+        return (
+            <View style={{ flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator color="#6366f1" size="large" />
+            </View>
+        );
+    }
+
+    if (!authed) return null;
+
     return (
         <Tabs
             screenOptions={{
@@ -15,13 +43,9 @@ export default function TabLayout() {
                     paddingBottom: Platform.OS === 'ios' ? 20 : 10,
                     height: 60,
                 },
-                headerStyle: {
-                    backgroundColor: '#1e293b',
-                },
+                headerStyle: { backgroundColor: '#1e293b' },
                 headerTintColor: '#fff',
-                headerTitleStyle: {
-                    fontWeight: 'bold',
-                },
+                headerTitleStyle: { fontWeight: 'bold' },
             }}>
             <Tabs.Screen
                 name="index"
