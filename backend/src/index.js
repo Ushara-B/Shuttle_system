@@ -120,6 +120,54 @@ app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
   }
 });
 
+// --- TRANSACTION ENDPOINTS ---
+app.post('/api/transactions/scan', async (req, res) => {
+  const { studentUid, farePrice, driverUid, route } = req.body;
+  console.log(`Fare scan: Student ${studentUid} paying Rs. ${farePrice} to Driver ${driverUid}`);
+
+  if (!studentUid || !farePrice) {
+    return res.status(400).send({ error: "Missing required fields" });
+  }
+
+  try {
+    const walletRef = db.collection('wallets').doc(studentUid);
+    const result = await db.runTransaction(async (transaction) => {
+      const walletDoc = await transaction.get(walletRef);
+      if (!walletDoc.exists) throw new Error("Student wallet not found");
+
+      const currentBalance = walletDoc.data().balance || 0;
+      if (currentBalance < farePrice) throw new Error("Insufficient balance");
+
+      const newBalance = currentBalance - farePrice;
+
+      // 1. Update Wallet
+      transaction.update(walletRef, {
+        balance: newBalance,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // 2. Log Payment
+      const paymentRef = db.collection('payments').doc();
+      transaction.set(paymentRef, {
+        studentUid,
+        driverUid: driverUid || 'system',
+        amount: -farePrice,
+        type: 'fare-deduction',
+        route: route || 'Standard Route',
+        status: 'success',
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      return { newBalance };
+    });
+
+    res.status(200).send({ message: "Payment successful", balance: result.newBalance });
+  } catch (error) {
+    console.error("Scan Failed:", error.message);
+    res.status(400).send({ error: error.message });
+  }
+});
+
 app.post('/api/admin/adjust-balance', verifyAdmin, async (req, res) => {
   const { studentUid, amount } = req.body;
   console.log(`Top-up attempt for ${studentUid}: Rs. ${amount}`);

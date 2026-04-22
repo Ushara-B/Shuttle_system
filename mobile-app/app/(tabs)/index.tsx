@@ -43,12 +43,13 @@ export default function WalletScreen() {
                 <Text style={styles.qrTitle}>Your Payment QR</Text>
                 <Text style={styles.qrSubtitle}>Scan this at the shuttle entrance</Text>
 
-                <View style={styles.qrWrapper}>
+                <View style={styles.qrContainer}>
                     <QRCode
                         value={auth.currentUser?.uid || 'invalid'}
-                        size={220}
-                        color="#fff"
-                        backgroundColor="transparent"
+                        size={240}
+                        color="#000"
+                        backgroundColor="#fff"
+                        quietZone={10}
                     />
                 </View>
 
@@ -96,11 +97,16 @@ const styles = StyleSheet.create({
     },
     qrTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 5 },
     qrSubtitle: { color: '#94a3b8', fontSize: 14, marginBottom: 25 },
-    qrWrapper: {
-        padding: 15,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 20,
+    qrContainer: {
+        padding: 20,
+        backgroundColor: '#fff',
+        borderRadius: 24,
         marginBottom: 20,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
     },
     securityBadge: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     securityText: { color: '#22c55e', fontSize: 12, fontWeight: '600' },

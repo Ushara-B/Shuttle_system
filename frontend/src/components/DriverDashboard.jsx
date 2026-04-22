@@ -35,8 +35,10 @@ const DriverDashboard = () => {
             scannerInstanceRef.current = scanner;
             await scanner.start(
                 { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 220, height: 220 } },
+                { fps: 15, qrbox: { width: 300, height: 300 } },
                 (decodedText) => {
+                    console.log("QR Detected:", decodedText);
+                    setStudentId(decodedText); // Store the scanned UID for history
                     stopScanner();
                     processPayment(decodedText);
                 },
@@ -167,7 +169,12 @@ const DriverDashboard = () => {
                         {status && !loading && (
                             <div className={`status-result ${status.type}`}>
                                 {status.type === 'success' ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
-                                {status.message}
+                                <div>
+                                    <p style={{ fontWeight: 700 }}>{status.message}</p>
+                                    {status.type === 'success' && studentId && (
+                                        <p style={{ fontSize: '0.7rem', opacity: 0.7, marginTop: '4px' }}>UID: {studentId}</p>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
