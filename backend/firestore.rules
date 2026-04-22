@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User profile: User can read their own, Admin can read all
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'admin');
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
+    }
+    
+    // Wallets: User can read their own balance, Admin can adjust
+    match /wallets/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'admin');
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
+      // Deduction logic should ideally be in Cloud Functions (Admin SDK)
+    }
+    
+    // Trips: Admin can read all, Student can read their own
+    match /trips/{tripId} {
+      allow read: if request.auth != null && (request.resource.data.studentUid == request.auth.uid || request.auth.token.role == 'admin');
+      allow write: if request.auth != null && (request.auth.token.role == 'admin' || request.auth.token.role == 'driver');
+    }
+    
+    // Payments: Admin can read all, Student can read their own
+    match /payments/{paymentId} {
+      allow read: if request.auth != null && (request.resource.data.studentUid == request.auth.uid || request.auth.token.role == 'admin');
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
+    }
+  }
+}
