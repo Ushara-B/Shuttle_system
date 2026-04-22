@@ -10,14 +10,23 @@ export default function ProfileScreen() {
     const router = useRouter();
 
     const handleLogout = async () => {
-        // Alert.alert doesn't work on Expo Web — use window.confirm instead
         const confirmed = Platform.OS === 'web'
             ? window.confirm('Are you sure you want to sign out?')
-            : true; // On native, sign out immediately (no confirm needed for simplicity)
+            : true;
 
         if (confirmed) {
-            await signOut(auth);
-            router.replace('/');
+            try {
+                await signOut(auth);
+                // On web, sometimes a full refresh is the cleanest way to clear state
+                // especially with Expo Router's local state.
+                if (Platform.OS === 'web') {
+                    window.location.href = '/';
+                } else {
+                    router.replace('/');
+                }
+            } catch (error) {
+                console.error("Sign out error:", error);
+            }
         }
     };
 

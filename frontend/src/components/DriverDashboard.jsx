@@ -1,122 +1,191 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { LogOut, QrCode, TrendingUp, Bus } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { LogOut, TrendingUp, Scan, CheckCircle2, XCircle, Bus, Edit2 } from 'lucide-react';
 
 const DriverDashboard = () => {
     const [studentId, setStudentId] = useState('');
     const [fare, setFare] = useState(50);
-    const [status, setStatus] = useState(null);
+    const [fareInput, setFareInput] = useState(50);
+    const [editingFare, setEditingFare] = useState(false);
+    const [status, setStatus] = useState(null); // { type: 'success'|'error', message }
     const [loading, setLoading] = useState(false);
     const [stats, setStats] = useState({ revenue: 0, trips: 0 });
+    const [scanning, setScanning] = useState(false);
+    const scannerRef = useRef(null);
+    const scannerInstanceRef = useRef(null);
 
-    // Listen to trip logs for today
     useEffect(() => {
         const q = query(collection(db, 'payments'), orderBy('timestamp', 'desc'));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            let revenue = 0;
+        return onSnapshot(q, (snapshot) => {
+            let revenue = 0, trips = 0;
             snapshot.forEach(doc => {
-                const data = doc.data();
-                if (data.type === 'fare-deduction') revenue += Math.abs(data.amount);
+                const d = doc.data();
+                if (d.type === 'fare-deduction') { revenue += Math.abs(d.amount); trips++; }
             });
-            setStats({ revenue, trips: snapshot.size });
+            setStats({ revenue, trips });
         });
-        return () => unsubscribe();
     }, []);
 
-    const handleScan = async (e) => {
-        e.preventDefault();
+    const startScanner = async () => {
+        if (!scannerRef.current) return;
+        try {
+            const scanner = new Html5Qrcode("qr-reader");
+            scannerInstanceRef.current = scanner;
+            await scanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 220, height: 220 } },
+                (decodedText) => {
+                    stopScanner();
+                    processPayment(decodedText);
+                },
+                () => { }
+            );
+            setScanning(true);
+            setStatus(null);
+        } catch (err) {
+            setStatus({ type: 'error', message: 'Could not access camera. Allow camera permissions and try again.' });
+        }
+    };
+
+    const stopScanner = () => {
+        if (scannerInstanceRef.current) {
+            scannerInstanceRef.current.stop()
+                .then(() => { scannerInstanceRef.current.clear(); scannerInstanceRef.current = null; })
+                .catch(() => { });
+        }
+        setScanning(false);
+    };
+
+    useEffect(() => () => { if (scanning) stopScanner(); }, []);
+
+    const processPayment = async (uid) => {
         setLoading(true);
         setStatus(null);
-
         try {
-            const response = await fetch('http://localhost:5000/api/transactions/scan', {
+            const res = await fetch('http://localhost:5000/api/transactions/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    studentUid: studentId,
-                    farePrice: fare,
-                    driverUid: auth.currentUser?.uid,
-                    route: 'Route A'
-                }),
+                body: JSON.stringify({ studentUid: uid, farePrice: fare, driverUid: auth.currentUser?.uid, route: 'Route A' }),
             });
-
-            const data = await response.json();
-            if (response.ok) {
-                setStatus({ type: 'success', message: `Success! Rs. ${fare} deducted.` });
+            const data = await res.json();
+            if (res.ok) {
+                setStatus({ type: 'success', message: `Rs. ${fare} collected successfully!` });
                 setStudentId('');
             } else {
-                setStatus({ type: 'error', message: data.error });
+                setStatus({ type: 'error', message: data.error || 'Payment failed' });
             }
-        } catch (error) {
-            setStatus({ type: 'error', message: 'Failed to connect to server' });
+        } catch {
+            setStatus({ type: 'error', message: 'Server connection failed. Is the backend running?' });
         } finally {
             setLoading(false);
         }
     };
 
+    const handleSetFare = (e) => {
+        e.preventDefault();
+        setFare(fareInput);
+        setEditingFare(false);
+    };
+
     return (
-        <div className="driver-dashboard">
-            <nav className="top-nav">
-                <div className="nav-brand"><Bus /> Driver Console</div>
-                <button className="logout-mini" onClick={() => auth.signOut()}>
-                    <LogOut size={18} /> Logout
+        <div className="driver-page">
+            {/* Top Nav */}
+            <nav className="driver-nav">
+                <div className="driver-nav-brand"><Bus size={22} /> Driver Console</div>
+                <button className="driver-logout" onClick={() => auth.signOut()}>
+                    <LogOut size={16} /> Logout
                 </button>
             </nav>
 
-            <div className="dashboard-content">
-                <div className="stats-row">
-                    <div className="stat-card">
-                        <TrendingUp color="#22c55e" />
-                        <div>
-                            <p>Today's Revenue</p>
-                            <h3>Rs. {stats.revenue}</h3>
-                        </div>
+            <div className="driver-layout">
+                {/* LEFT COLUMN: Scanner */}
+                <div className="driver-col-left">
+                    {/* Fare Badge */}
+                    <div className="fare-badge">
+                        <div className="fare-badge-label">Current Fare</div>
+                        {editingFare ? (
+                            <form onSubmit={handleSetFare} className="fare-edit-form">
+                                <input
+                                    type="number"
+                                    value={fareInput}
+                                    min="1"
+                                    autoFocus
+                                    onChange={e => setFareInput(Number(e.target.value))}
+                                    className="fare-input"
+                                />
+                                <button type="submit" className="fare-save-btn">Save</button>
+                                <button type="button" className="fare-cancel-btn" onClick={() => setEditingFare(false)}>✕</button>
+                            </form>
+                        ) : (
+                            <div className="fare-display">
+                                <span className="fare-amount">Rs. {fare}</span>
+                                <button className="fare-edit-btn" onClick={() => { setFareInput(fare); setEditingFare(true); }}>
+                                    <Edit2 size={16} /> Edit
+                                </button>
+                            </div>
+                        )}
                     </div>
-                    <div className="stat-card">
-                        <QrCode color="#6366f1" />
-                        <div>
-                            <p>Total Scans</p>
-                            <h3>{stats.trips}</h3>
+
+                    {/* Scanner Viewfinder */}
+                    <div className="scanner-card">
+                        <div className="scanner-title">
+                            <Scan size={20} /> Scan Student QR
                         </div>
+
+                        <div className={`scanner-viewfinder ${scanning ? 'active' : ''}`}>
+                            {/* Corner brackets */}
+                            <div className="corner tl" /><div className="corner tr" />
+                            <div className="corner bl" /><div className="corner br" />
+                            {/* Camera feed or placeholder */}
+                            <div id="qr-reader" ref={scannerRef} style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden' }} />
+                            {!scanning && (
+                                <div className="scanner-placeholder">
+                                    <Scan size={48} strokeWidth={1.5} color="#6366f1" />
+                                    <p>Camera is off</p>
+                                </div>
+                            )}
+                            {/* Scanning laser animation */}
+                            {scanning && <div className="scan-laser" />}
+                        </div>
+
+                        <div className="scanner-actions">
+                            {!scanning ? (
+                                <button className="btn-primary" onClick={startScanner} disabled={loading}>
+                                    Open Camera & Scan
+                                </button>
+                            ) : (
+                                <button className="btn-danger" onClick={stopScanner}>
+                                    Stop Camera
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Status Banner */}
+                        {loading && <div className="status-processing">Processing payment…</div>}
+                        {status && !loading && (
+                            <div className={`status-result ${status.type}`}>
+                                {status.type === 'success' ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+                                {status.message}
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div className="scanner-section">
-                    <div className="card-header">
-                        <h2>Fare Collection</h2>
-                        <p>Scan student QR or enter ID</p>
+                {/* RIGHT COLUMN: Stats */}
+                <div className="driver-col-right">
+                    <div className="stats-card">
+                        <div className="stat-block">
+                            <p className="stat-label">Today's Revenue</p>
+                            <h2 className="stat-value green">Rs. {stats.revenue}</h2>
+                        </div>
+                        <div className="stat-divider" />
+                        <div className="stat-block">
+                            <p className="stat-label">Total Scans</p>
+                            <h2 className="stat-value purple">{stats.trips}</h2>
+                        </div>
                     </div>
-
-                    <form onSubmit={handleScan}>
-                        <div className="input-field">
-                            <label>Student ID / Scan Result</label>
-                            <input
-                                type="text"
-                                value={studentId}
-                                onChange={(e) => setStudentId(e.target.value)}
-                                placeholder="Paste scan result here"
-                                required
-                            />
-                        </div>
-                        <div className="input-field">
-                            <label>Fare (Rs.)</label>
-                            <input
-                                type="number"
-                                value={fare}
-                                onChange={(e) => setFare(Number(e.target.value))}
-                            />
-                        </div>
-                        <button className="scan-btn" type="submit" disabled={loading}>
-                            {loading ? 'Processing...' : 'Collect Fare'}
-                        </button>
-                    </form>
-
-                    {status && (
-                        <div className={`status-banner ${status.type}`}>
-                            {status.message}
-                        </div>
-                    )}
                 </div>
             </div>
         </div>

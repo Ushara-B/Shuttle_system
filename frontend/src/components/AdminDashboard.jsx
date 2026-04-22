@@ -134,10 +134,10 @@ const AddUserModal = ({ role, onClose }) => {
         <div className="modal-overlay">
             <div className="modal-card">
                 <h2>Add New {role}</h2>
-                <form onSubmit={handleSubmit}>
-                    <input type="text" placeholder="Display Name" onChange={e => setFormData({ ...formData, displayName: e.target.value })} required />
-                    <input type="email" placeholder="Email" onChange={e => setFormData({ ...formData, email: e.target.value })} required />
-                    <input type="password" placeholder="Password" onChange={e => setFormData({ ...formData, password: e.target.value })} required />
+                <form onSubmit={handleSubmit} autoComplete="off">
+                    <input type="text" placeholder="Display Name" autoComplete="off" onChange={e => setFormData({ ...formData, displayName: e.target.value })} required />
+                    <input type="email" placeholder="Email" autoComplete="off" onChange={e => setFormData({ ...formData, email: e.target.value })} required />
+                    <input type="password" placeholder="Password" autoComplete="new-password" onChange={e => setFormData({ ...formData, password: e.target.value })} required />
                     <div className="modal-btns">
                         <button type="button" onClick={onClose}>Cancel</button>
                         <button type="submit" className="primary-btn">Create User</button>
