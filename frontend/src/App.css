@@ -769,3 +769,77 @@ button:disabled {
     order: -1;
   }
 }
+
+/* Direction Toggle */
+.direction-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.direction-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 0.75rem;
+}
+
+.direction-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dir-btn {
+  flex: 1;
+  padding: 0.75rem 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  transition: all 0.2s;
+}
+
+.dir-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.dir-btn:hover {
+  opacity: 0.9;
+}
+
+/* Map Card */
+.map-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.map-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.map-wrapper {
+  width: 100%;
+  height: 300px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.leaflet-container {
+  background: #0f172a;
+}

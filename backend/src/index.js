@@ -119,49 +119,99 @@ app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
     res.status(400).send({ error: error.message });
   }
 });
-
 // --- TRANSACTION ENDPOINTS ---
-app.post('/api/transactions/scan', async (req, res) => {
-  const { studentUid, farePrice, driverUid, route } = req.body;
-  console.log(`Fare scan: Student ${studentUid} paying Rs. ${farePrice} to Driver ${driverUid}`);
+const { haversineDistance, CAMPUS_COORDS } = require('./utils/haversine');
 
-  if (!studentUid || !farePrice) {
-    return res.status(400).send({ error: "Missing required fields" });
+app.post('/api/transactions/scan', async (req, res) => {
+  const { studentUid, farePrice, driverUid, route, latitude, longitude, direction, pricePerKm } = req.body;
+
+  if (!studentUid) {
+    return res.status(400).send({ error: "Missing student UID" });
   }
 
   try {
+    // === DUPLICATE SCAN CHECK ===
+    // Get today's date key (e.g., "2026-04-22")
+    const today = new Date().toISOString().split('T')[0];
+    const tripDirection = direction || 'unknown';
+
+    const existingTrips = await db.collection('payments')
+      .where('studentUid', '==', studentUid)
+      .where('type', '==', 'fare-deduction')
+      .where('dateKey', '==', today)
+      .where('direction', '==', tripDirection)
+      .limit(1)
+      .get();
+
+    if (!existingTrips.empty) {
+      const existingTrip = existingTrips.docs[0].data();
+      return res.status(409).send({
+        error: `Already paid for ${tripDirection === 'home-to-campus' ? 'Home → Campus' : 'Campus → Home'} today`,
+        existingFare: Math.abs(existingTrip.amount),
+        existingDistance: existingTrip.distanceKm,
+      });
+    }
+
+    // === FARE CALCULATION ===
+    let finalFare = farePrice || 50;
+    let distanceKm = null;
+
+    if (latitude && longitude && pricePerKm) {
+      distanceKm = haversineDistance(latitude, longitude, CAMPUS_COORDS.lat, CAMPUS_COORDS.lng);
+      finalFare = Math.round(distanceKm * pricePerKm);
+      if (finalFare < 10) finalFare = 10;
+      console.log(`GPS Fare: ${distanceKm}km × Rs.${pricePerKm}/km = Rs.${finalFare}`);
+    }
+
+    // Get student name
+    let studentName = 'Unknown';
+    const userDoc = await db.collection('users').doc(studentUid).get();
+    if (userDoc.exists) studentName = userDoc.data().displayName || userDoc.data().email || 'Student';
+
+    console.log(`Fare scan: ${studentName} (${studentUid}) | Rs. ${finalFare} | ${distanceKm || '?'}km | ${tripDirection}`);
+
     const walletRef = db.collection('wallets').doc(studentUid);
     const result = await db.runTransaction(async (transaction) => {
       const walletDoc = await transaction.get(walletRef);
       if (!walletDoc.exists) throw new Error("Student wallet not found");
 
       const currentBalance = walletDoc.data().balance || 0;
-      if (currentBalance < farePrice) throw new Error("Insufficient balance");
+      if (currentBalance < finalFare) throw new Error(`Insufficient balance. Need Rs.${finalFare}, have Rs.${currentBalance}`);
 
-      const newBalance = currentBalance - farePrice;
+      const newBalance = currentBalance - finalFare;
 
-      // 1. Update Wallet
       transaction.update(walletRef, {
         balance: newBalance,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      // 2. Log Payment
       const paymentRef = db.collection('payments').doc();
       transaction.set(paymentRef, {
         studentUid,
+        studentName,
         driverUid: driverUid || 'system',
-        amount: -farePrice,
+        amount: -finalFare,
         type: 'fare-deduction',
+        direction: tripDirection,
         route: route || 'Standard Route',
+        distanceKm,
+        pricePerKm: pricePerKm || null,
+        scanLocation: latitude ? { latitude, longitude } : null,
+        dateKey: today,
         status: 'success',
         timestamp: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      return { newBalance };
+      return { newBalance, distanceKm, finalFare };
     });
 
-    res.status(200).send({ message: "Payment successful", balance: result.newBalance });
+    res.status(200).send({
+      message: "Payment successful",
+      studentName,
+      balance: result.newBalance,
+      distanceKm: result.distanceKm,
+      fare: result.finalFare
+    });
   } catch (error) {
     console.error("Scan Failed:", error.message);
     res.status(400).send({ error: error.message });

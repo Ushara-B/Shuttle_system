@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Animated, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { db, auth } from '../../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { getCurrentLocation, getDistanceToCampus, CAMPUS_COORDS } from '../../utils/location';
 
 export default function WalletScreen() {
     const [balance, setBalance] = useState(0);
     const [studentId, setStudentId] = useState('');
     const [loading, setLoading] = useState(true);
+    const [distance, setDistance] = useState<number | null>(null);
+    const [locationLoading, setLocationLoading] = useState(true);
     const fadeAnim = new Animated.Value(0);
 
     useEffect(() => {
@@ -28,6 +31,20 @@ export default function WalletScreen() {
         return () => unsubscribe();
     }, []);
 
+    // Get GPS location
+    useEffect(() => {
+        (async () => {
+            const loc = await getCurrentLocation();
+            if (loc) {
+                const dist = getDistanceToCampus(loc.latitude, loc.longitude);
+                setDistance(dist);
+            }
+            setLocationLoading(false);
+        })();
+    }, []);
+
+    const estimatedFare = distance ? Math.round(distance * 10) : null; // Rs. 10/km default
+
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <Animated.View style={[styles.balanceCard, { opacity: fadeAnim }]}>
@@ -38,6 +55,26 @@ export default function WalletScreen() {
                     <Ionicons name="card" size={24} color="rgba(255,255,255,0.6)" />
                 </View>
             </Animated.View>
+
+            {/* Distance Info Card */}
+            <View style={styles.distanceCard}>
+                <View style={styles.distanceRow}>
+                    <Ionicons name="location" size={20} color="#6366f1" />
+                    <Text style={styles.distanceLabel}>Distance to Campus</Text>
+                </View>
+                {locationLoading ? (
+                    <ActivityIndicator color="#6366f1" style={{ marginTop: 10 }} />
+                ) : distance ? (
+                    <View>
+                        <Text style={styles.distanceValue}>{distance} km</Text>
+                        <Text style={styles.estimatedFare}>
+                            Estimated fare: Rs. {estimatedFare} (@ Rs. 10/km)
+                        </Text>
+                    </View>
+                ) : (
+                    <Text style={styles.distanceNA}>Allow location access to see distance</Text>
+                )}
+            </View>
 
             <View style={styles.qrSection}>
                 <Text style={styles.qrTitle}>Your Payment QR</Text>
@@ -75,7 +112,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#6366f1',
         borderRadius: 24,
         padding: 25,
-        marginBottom: 30,
+        marginBottom: 20,
         elevation: 10,
         shadowColor: '#6366f1',
         shadowOffset: { width: 0, height: 10 },
@@ -86,6 +123,23 @@ const styles = StyleSheet.create({
     balanceAmount: { color: '#fff', fontSize: 36, fontWeight: '800', marginVertical: 10 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
     studentIdLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
+
+    // Distance Card
+    distanceCard: {
+        width: '100%',
+        backgroundColor: '#1e293b',
+        borderRadius: 20,
+        padding: 20,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#334155',
+    },
+    distanceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    distanceLabel: { color: '#94a3b8', fontSize: 14, fontWeight: '600' },
+    distanceValue: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 8 },
+    estimatedFare: { color: '#22c55e', fontSize: 14, fontWeight: '600', marginTop: 4 },
+    distanceNA: { color: '#94a3b8', fontSize: 13, marginTop: 8, fontStyle: 'italic' },
+
     qrSection: {
         backgroundColor: '#1e293b',
         width: '100%',
