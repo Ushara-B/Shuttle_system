@@ -805,6 +805,11 @@ button:disabled {
   color: var(--error);
 }
 
+.status-result.info {
+  background: rgba(99, 102, 241, 0.12);
+  color: #3730a3;
+}
+
 /* === Right Col: Stats + Manual === */
 .driver-col-right {
   display: flex;
@@ -1001,27 +1006,27 @@ button:disabled {
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  background: linear-gradient(180deg, #1e1b4b 0%, #312e81 50%, #3730a3 100%);
-  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0f172a;
+  border-right: 1px solid #1e293b;
 }
 
 .driver-shell .admin-brand {
-  color: #e0e7ff;
+  color: #f8fafc;
 }
 
 .driver-shell .admin-nav-btn {
-  color: rgba(226, 232, 240, 0.88);
+  color: #94a3b8;
   border-color: transparent;
 }
 
 .driver-shell .admin-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: #1e293b;
+  color: #f8fafc;
 }
 
 .driver-shell .admin-nav-btn.active {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: #1e40af;
+  border-color: transparent;
   color: #ffffff;
 }
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { collection, doc, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
+import { EmailAuthProvider, onAuthStateChanged, reauthenticateWithCredential, updateEmail, updatePassword, updateProfile } from 'firebase/auth';
 import { Html5Qrcode } from 'html5-qrcode';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -18,7 +18,8 @@ import {
     BarChart3,
     Settings,
     LayoutDashboard,
-    UserCircle2
+    UserCircle2,
+    Lock
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
@@ -67,6 +68,19 @@ const formatDirection = (dir) => {
     return dir;
 };
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+const mapAuthError = (error) => {
+    const code = error?.code || '';
+    if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') return 'Current password is incorrect.';
+    if (code === 'auth/too-many-requests') return 'Too many attempts. Please wait and try again.';
+    if (code === 'auth/email-already-in-use') return 'That email is already in use by another account.';
+    if (code === 'auth/invalid-email') return 'Email address is invalid.';
+    if (code === 'auth/weak-password') return 'New password is too weak.';
+    if (code === 'auth/requires-recent-login') return 'Please log out and log in again, then retry this change.';
+    return error?.message || 'Failed to update profile.';
+};
+
 const MiniBars = ({ data }) => {
     const max = Math.max(...data.map((d) => d.value), 1);
     return (
@@ -102,6 +116,9 @@ const DriverDashboard = () => {
     const [scanMarkers, setScanMarkers] = useState([]);
     const [recentTrips, setRecentTrips] = useState([]);
     const [lastResult, setLastResult] = useState(null);
+    const [profileSaving, setProfileSaving] = useState(false);
+    const [profileForm, setProfileForm] = useState({ displayName: '', email: '', currentPassword: '', newPassword: '', confirmPassword: '' });
+    const [profileStatus, setProfileStatus] = useState(null);
     const scannerRef = useRef(null);
     const scannerInstanceRef = useRef(null);
 
@@ -160,6 +177,14 @@ const DriverDashboard = () => {
         const saved = localStorage.getItem(perDriverKey) || localStorage.getItem('shuttle_direction');
         if (saved && saved !== direction) setDirection(saved);
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUid]);
+
+    useEffect(() => {
+        setProfileForm((prev) => ({
+            ...prev,
+            displayName: auth.currentUser?.displayName || '',
+            email: auth.currentUser?.email || '',
+        }));
     }, [currentUid]);
 
     const startScanner = async () => {
@@ -299,6 +324,7 @@ const DriverDashboard = () => {
         history: 'Trip History',
         analytics: 'Analytics',
         settings: 'Settings',
+        profile: 'Profile',
     };
 
     const nav = [
@@ -306,7 +332,70 @@ const DriverDashboard = () => {
         { id: 'history', label: 'Trip History', icon: History },
         { id: 'analytics', label: 'Analytics', icon: BarChart3 },
         { id: 'settings', label: 'Settings', icon: Settings },
+        { id: 'profile', label: 'Profile', icon: UserCircle2 },
     ];
+
+    const handleUpdateProfile = async (e) => {
+        e.preventDefault();
+        if (!auth.currentUser) {
+            setProfileStatus({ type: 'error', message: 'User session not found. Please log in again.' });
+            return;
+        }
+
+        const nextDisplayName = profileForm.displayName.trim();
+        const nextEmail = profileForm.email.trim().toLowerCase();
+        const currentPassword = profileForm.currentPassword;
+        const newPassword = profileForm.newPassword;
+        const confirmPassword = profileForm.confirmPassword;
+
+        if (!nextDisplayName) return setProfileStatus({ type: 'error', message: 'Display name is required.' });
+        if (!EMAIL_REGEX.test(nextEmail)) return setProfileStatus({ type: 'error', message: 'Enter a valid email address.' });
+        if ((newPassword || confirmPassword) && !STRONG_PASSWORD_REGEX.test(newPassword)) {
+            return setProfileStatus({ type: 'error', message: 'New password must be 8+ chars with uppercase, lowercase, number, and symbol.' });
+        }
+        if (newPassword !== confirmPassword) return setProfileStatus({ type: 'error', message: 'New password and confirm password do not match.' });
+
+        const needsSensitiveUpdate = nextEmail !== (auth.currentUser.email || '') || Boolean(newPassword);
+        if (needsSensitiveUpdate && !currentPassword) {
+            return setProfileStatus({ type: 'error', message: 'Current password is required for email/password changes.' });
+        }
+        const hasAnyChange =
+            nextDisplayName !== (auth.currentUser.displayName || '') ||
+            nextEmail !== (auth.currentUser.email || '') ||
+            Boolean(newPassword);
+        if (!hasAnyChange) {
+            return setProfileStatus({ type: 'error', message: 'No changes detected. Update a field first.' });
+        }
+
+        setProfileSaving(true);
+        setProfileStatus({ type: 'info', message: 'Saving profile changes...' });
+        try {
+            if (needsSensitiveUpdate) {
+                const credential = EmailAuthProvider.credential(auth.currentUser.email || '', currentPassword);
+                await reauthenticateWithCredential(auth.currentUser, credential);
+            }
+            if (nextDisplayName !== (auth.currentUser.displayName || '')) {
+                await updateProfile(auth.currentUser, { displayName: nextDisplayName });
+            }
+            if (nextEmail !== (auth.currentUser.email || '')) {
+                await updateEmail(auth.currentUser, nextEmail);
+            }
+            if (newPassword) {
+                await updatePassword(auth.currentUser, newPassword);
+            }
+            await setDoc(doc(db, 'users', auth.currentUser.uid), {
+                displayName: nextDisplayName,
+                email: nextEmail,
+                updatedAt: new Date().toISOString(),
+            }, { merge: true });
+            setProfileForm((prev) => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
+            setProfileStatus({ type: 'success', message: 'Profile updated successfully. Password/email changes are now active.' });
+        } catch (error) {
+            setProfileStatus({ type: 'error', message: mapAuthError(error) });
+        } finally {
+            setProfileSaving(false);
+        }
+    };
 
     return (
         <div className="admin-shell driver-shell">
@@ -475,6 +564,62 @@ const DriverDashboard = () => {
                                 </div>
                             )}
                         </div>
+                    </section>
+                )}
+
+                {activeSection === 'profile' && (
+                    <section className="admin-panel-card">
+                        <div className="admin-section-header">
+                            <h2>Profile</h2>
+                            <p>Update your account details and password.</p>
+                        </div>
+                        <form className="admin-form-grid" onSubmit={handleUpdateProfile}>
+                            <input
+                                type="text"
+                                placeholder="Display Name"
+                                value={profileForm.displayName}
+                                onChange={(e) => setProfileForm((p) => ({ ...p, displayName: e.target.value }))}
+                                required
+                            />
+                            <input
+                                type="email"
+                                placeholder="Email"
+                                value={profileForm.email}
+                                onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))}
+                                required
+                            />
+                            <div className="admin-card-title"><Lock size={16} /> Password Change</div>
+                            <input
+                                type="password"
+                                placeholder="Current Password (required for email/password changes)"
+                                value={profileForm.currentPassword}
+                                onChange={(e) => setProfileForm((p) => ({ ...p, currentPassword: e.target.value }))}
+                            />
+                            <input
+                                type="password"
+                                placeholder="New Password"
+                                value={profileForm.newPassword}
+                                onChange={(e) => setProfileForm((p) => ({ ...p, newPassword: e.target.value }))}
+                            />
+                            <input
+                                type="password"
+                                placeholder="Confirm New Password"
+                                value={profileForm.confirmPassword}
+                                onChange={(e) => setProfileForm((p) => ({ ...p, confirmPassword: e.target.value }))}
+                            />
+                            <p style={{ fontSize: '0.8rem', color: '#64748b' }}>Password rule: 8+ chars, uppercase, lowercase, number, symbol.</p>
+                            {profileStatus && (
+                                <div className={`status-result ${profileStatus.type === 'success' ? 'success' : profileStatus.type === 'info' ? 'info' : 'error'}`}>
+                                    {profileStatus.type === 'success' ? <CheckCircle2 size={20} /> : profileStatus.type === 'info' ? <Settings size={20} /> : <XCircle size={20} />}
+                                    <div>
+                                        <p style={{ fontWeight: 700 }}>{profileStatus.message}</p>
+                                    </div>
+                                </div>
+                            )}
+                            <button className="admin-primary-btn" type="submit" disabled={profileSaving}>
+                                {profileSaving ? 'Saving...' : 'Save Profile Changes'}
+                            </button>
+                        </form>
                     </section>
                 )}
             </main>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { db, auth } from '../../firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function HistoryScreen() {
@@ -140,7 +140,7 @@ export default function HistoryScreen() {
             ) : logs.length === 0 ? (
                 <View style={[styles.center, { paddingHorizontal: 40 }]}>
                     <Ionicons name="receipt-outline" size={64} color="#CBD5E1" />
-                    <Text style={[styles.emptyText, { textAlign: 'center' }]}>You currently haven't any transactional data</Text>
+                    <Text style={[styles.emptyText, { textAlign: 'center' }]}>You currently have no transactional data</Text>
                 </View>
             ) : (
                 <FlatList

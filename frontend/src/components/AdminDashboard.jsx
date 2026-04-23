@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { auth, db } from '../firebase';
-import { addDoc, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore';
+import { EmailAuthProvider, reauthenticateWithCredential, updateEmail, updatePassword, updateProfile } from 'firebase/auth';
 import {
   Users, Wallet, Route, UserPlus, Search, LogOut, Save, History,
   Settings, UserCog, LayoutDashboard, BarChart3, Filter, ShieldCheck,
-  UserCircle2, GraduationCap, Bus, Ticket, Bell
+  UserCircle2, GraduationCap, Bus, Ticket, Bell, Lock, User
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import './Admin.css';
@@ -15,9 +16,9 @@ const navItems = [
   { id: 'tokens', label: 'Tokens', icon: Ticket },
   { id: 'trips', label: 'Shuttle Services', icon: Bus },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'profile', label: 'Profile', icon: User },
   { id: 'history', label: 'Service History', icon: History },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'governance', label: 'Governance', icon: ShieldCheck },
 ];
 
 const roleOptions = ['student', 'driver', 'admin'];
@@ -50,6 +51,9 @@ const buildLastNDays = (payments, days = 7) => {
   });
   return [...map.entries()].map(([day, value]) => ({ day: day.slice(5), value }));
 };
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
 const SimpleBars = ({ data }) => {
   const max = Math.max(...data.map((d) => d.value), 1);
@@ -92,6 +96,8 @@ const AdminDashboard = () => {
   const [notices, setNotices] = useState([]);
   const [noticeSubmitting, setNoticeSubmitting] = useState(false);
   const [noticeForm, setNoticeForm] = useState({ title: '', note: '' });
+  const [profileForm, setProfileForm] = useState({ displayName: '', email: '', currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [profileSaving, setProfileSaving] = useState(false);
 
   useEffect(() => {
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -200,10 +206,18 @@ const AdminDashboard = () => {
     tokens: 'Token Management',
     trips: 'Shuttle Services',
     notifications: 'Notifications',
+    profile: 'Profile',
     history: 'Service History',
     analytics: 'Analytics',
-    governance: 'Governance',
   };
+
+  useEffect(() => {
+    setProfileForm((prev) => ({
+      ...prev,
+      displayName: currentUser?.displayName || '',
+      email: currentUser?.email || '',
+    }));
+  }, [currentUser?.displayName, currentUser?.email]);
 
   const showMessage = (type, text) => {
     setStatus({ type, text });
@@ -212,12 +226,20 @@ const AdminDashboard = () => {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
+    const email = userForm.email.trim().toLowerCase();
+    const password = userForm.password;
+    if (!EMAIL_REGEX.test(email)) {
+      return showMessage('error', 'Enter a valid email address');
+    }
+    if (!STRONG_PASSWORD_REGEX.test(password)) {
+      return showMessage('error', 'Password must be 8+ chars with upper, lower, number, symbol');
+    }
     try {
       const response = await apiFetch('/api/admin/create-user', {
         method: 'POST',
         auth: true,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userForm),
+        body: JSON.stringify({ ...userForm, email }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to create user');
@@ -225,6 +247,60 @@ const AdminDashboard = () => {
       showMessage('success', 'User created successfully');
     } catch (error) {
       showMessage('error', error.message);
+    }
+  };
+
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    if (!auth.currentUser) return showMessage('error', 'User session not found');
+
+    const nextDisplayName = profileForm.displayName.trim();
+    const nextEmail = profileForm.email.trim().toLowerCase();
+    const currentPassword = profileForm.currentPassword;
+    const newPassword = profileForm.newPassword;
+    const confirmPassword = profileForm.confirmPassword;
+
+    if (!nextDisplayName) return showMessage('error', 'Display name is required');
+    if (!EMAIL_REGEX.test(nextEmail)) return showMessage('error', 'Enter a valid email address');
+    if ((newPassword || confirmPassword) && !STRONG_PASSWORD_REGEX.test(newPassword)) {
+      return showMessage('error', 'New password must be 8+ chars with upper, lower, number, symbol');
+    }
+    if (newPassword !== confirmPassword) return showMessage('error', 'New password and confirm password do not match');
+
+    const needsSensitiveUpdate = nextEmail !== (auth.currentUser.email || '') || Boolean(newPassword);
+    if (needsSensitiveUpdate && !currentPassword) {
+      return showMessage('error', 'Current password is required for email/password changes');
+    }
+
+    setProfileSaving(true);
+    try {
+      if (needsSensitiveUpdate) {
+        const credential = EmailAuthProvider.credential(auth.currentUser.email || '', currentPassword);
+        await reauthenticateWithCredential(auth.currentUser, credential);
+      }
+
+      if (nextDisplayName !== (auth.currentUser.displayName || '')) {
+        await updateProfile(auth.currentUser, { displayName: nextDisplayName });
+      }
+      if (nextEmail !== (auth.currentUser.email || '')) {
+        await updateEmail(auth.currentUser, nextEmail);
+      }
+      if (newPassword) {
+        await updatePassword(auth.currentUser, newPassword);
+      }
+
+      await setDoc(doc(db, 'users', auth.currentUser.uid), {
+        displayName: nextDisplayName,
+        email: nextEmail,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      setProfileForm((prev) => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
+      showMessage('success', 'Profile updated successfully');
+    } catch (error) {
+      showMessage('error', error.message || 'Failed to update profile');
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -749,6 +825,69 @@ const AdminDashboard = () => {
             </section>
           )}
 
+          {activeSection === 'profile' && (
+            <section>
+              <div className="admin-section-header-modern">
+                <h2>My Profile</h2>
+                <p>Update your account details and password.</p>
+              </div>
+              <div className="admin-panel">
+                <form className="modern-form-grid" onSubmit={handleUpdateProfile}>
+                  <div className="admin-panel-header">
+                    <UserCircle2 size={18} color="#3b82f6" />
+                    <h3>Account Details</h3>
+                  </div>
+                  <input
+                    className="modern-input"
+                    placeholder="Display Name"
+                    value={profileForm.displayName}
+                    onChange={(e) => setProfileForm((p) => ({ ...p, displayName: e.target.value }))}
+                    required
+                  />
+                  <input
+                    className="modern-input"
+                    type="email"
+                    placeholder="Email"
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))}
+                    required
+                  />
+                  <div className="admin-panel-header">
+                    <Lock size={18} color="#7c3aed" />
+                    <h3>Password Change</h3>
+                  </div>
+                  <input
+                    className="modern-input"
+                    type="password"
+                    placeholder="Current Password (required for email/password changes)"
+                    value={profileForm.currentPassword}
+                    onChange={(e) => setProfileForm((p) => ({ ...p, currentPassword: e.target.value }))}
+                  />
+                  <input
+                    className="modern-input"
+                    type="password"
+                    placeholder="New Password"
+                    value={profileForm.newPassword}
+                    onChange={(e) => setProfileForm((p) => ({ ...p, newPassword: e.target.value }))}
+                  />
+                  <input
+                    className="modern-input"
+                    type="password"
+                    placeholder="Confirm New Password"
+                    value={profileForm.confirmPassword}
+                    onChange={(e) => setProfileForm((p) => ({ ...p, confirmPassword: e.target.value }))}
+                  />
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '-0.4rem' }}>
+                    Password rule: at least 8 chars, uppercase, lowercase, number, and symbol.
+                  </p>
+                  <button type="submit" className="modern-btn" disabled={profileSaving}>
+                    {profileSaving ? 'Saving...' : 'Save Profile Changes'}
+                  </button>
+                </form>
+              </div>
+            </section>
+          )}
+
           {activeSection === 'history' && (
             <section>
               <div className="admin-section-header-modern">
@@ -820,24 +959,6 @@ const AdminDashboard = () => {
             </section>
           )}
 
-          {activeSection === 'governance' && (
-            <section>
-              <div className="admin-section-header-modern">
-                <h2>Governance & Security</h2>
-                <p>Operational health controls and roles.</p>
-              </div>
-              <div className="admin-panel">
-                <table className="modern-table">
-                  <tbody>
-                    <tr><td><strong>Role-based policy</strong></td><td><span className="admin-badge badge-green">Enabled</span></td></tr>
-                    <tr><td><strong>Pricing governance</strong></td><td><span className="admin-badge badge-blue">Driver + Global</span></td></tr>
-                    <tr><td><strong>Duplicate scan control</strong></td><td><span className="admin-badge badge-green">Enabled</span></td></tr>
-                    <tr><td><strong>Next recommended</strong></td><td><span className="admin-badge badge-red">Audit log export</span></td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
         </div>
       </main>
     </div>

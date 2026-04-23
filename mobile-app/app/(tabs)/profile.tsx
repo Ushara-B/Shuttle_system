@@ -4,9 +4,8 @@ import {
     TextInput, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
+import { EmailAuthProvider, onAuthStateChanged, reauthenticateWithCredential, signOut, updateEmail, updatePassword, updateProfile } from 'firebase/auth';
 import { db, auth } from '../../firebase';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentLocation } from '../../utils/location';
 
@@ -36,8 +35,7 @@ const FIELDS: Field[] = [
 ];
 
 export default function ProfileScreen() {
-    const user = auth.currentUser;
-    const router = useRouter();
+    const [user, setUser] = useState(auth.currentUser);
 
     const [form, setForm] = useState<Record<string, string>>({
         fullName: '', address: '', fieldOfStudy: '', currentYear: '',
@@ -46,8 +44,24 @@ export default function ProfileScreen() {
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
     const [locLoading, setLocLoading] = useState(false);
+    const [loggingOut, setLoggingOut] = useState(false);
+    const [accountMsg, setAccountMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+    const [securityMsg, setSecurityMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+    const [securityForm, setSecurityForm] = useState({
+        email: user?.email || '',
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+    });
 
-    useEffect(() => { loadProfile(); }, []);
+    useEffect(() => {
+        const unsub = onAuthStateChanged(auth, (u) => {
+            setUser(u);
+        });
+        return () => unsub();
+    }, []);
+
+    useEffect(() => { loadProfile(); }, [user?.uid]);
 
     const loadProfile = async () => {
         if (!user?.uid) return;
@@ -61,6 +75,7 @@ export default function ProfileScreen() {
                     fieldOfStudy: d.fieldOfStudy || '',
                     currentYear: d.currentYear ? String(d.currentYear) : '',
                 });
+                setSecurityForm((prev) => ({ ...prev, email: d.email || user?.email || '' }));
                 if (d.homeLocation?.latitude) {
                     setLocationText(
                         `${d.homeLocation.latitude.toFixed(5)}, ${d.homeLocation.longitude.toFixed(5)}`
@@ -96,24 +111,99 @@ export default function ProfileScreen() {
 
     const handleSave = async () => {
         if (!user?.uid) return;
+        if (!form.fullName.trim()) {
+            setAccountMsg({ type: 'error', text: 'Full name is required.' });
+            return;
+        }
         setSaving(true);
+        setAccountMsg({ type: 'info', text: 'Saving profile...' });
         try {
             await setDoc(doc(db, 'users', user.uid), {
-                displayName: form.fullName,
-                fullName: form.fullName,
+                displayName: form.fullName.trim(),
+                fullName: form.fullName.trim(),
                 address: form.address,
                 fieldOfStudy: form.fieldOfStudy,
                 currentYear: form.currentYear ? Number(form.currentYear) : null,
                 updatedAt: new Date().toISOString(),
             }, { merge: true });
-            Alert.alert('Profile Saved', 'Your details have been updated successfully.');
-        } catch (e) { Alert.alert('Error', 'Could not save profile. Please try again.'); }
+            await updateProfile(user, { displayName: form.fullName.trim() });
+            setAccountMsg({ type: 'success', text: 'Profile updated successfully.' });
+        } catch {
+            setAccountMsg({ type: 'error', text: 'Could not save profile. Please try again.' });
+        }
+        setSaving(false);
+    };
+
+    const handleSecuritySave = async () => {
+        if (!user) return;
+        const email = securityForm.email.trim().toLowerCase();
+        const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+
+        if (!EMAIL_REGEX.test(email)) return setSecurityMsg({ type: 'error', text: 'Enter a valid email address.' });
+        if ((securityForm.newPassword || securityForm.confirmPassword) && !STRONG_PASSWORD_REGEX.test(securityForm.newPassword)) {
+            return setSecurityMsg({ type: 'error', text: 'New password must be 8+ chars with uppercase, lowercase, number, and symbol.' });
+        }
+        if (securityForm.newPassword !== securityForm.confirmPassword) {
+            return setSecurityMsg({ type: 'error', text: 'New password and confirm password do not match.' });
+        }
+
+        const needsSensitiveUpdate = email !== (user.email || '') || Boolean(securityForm.newPassword);
+        if (needsSensitiveUpdate && !securityForm.currentPassword) {
+            return setSecurityMsg({ type: 'error', text: 'Current password is required for email/password changes.' });
+        }
+        if (!needsSensitiveUpdate) {
+            return setSecurityMsg({ type: 'error', text: 'No account security changes detected.' });
+        }
+
+        setSaving(true);
+        setSecurityMsg({ type: 'info', text: 'Updating account credentials...' });
+        try {
+            if (needsSensitiveUpdate) {
+                const credential = EmailAuthProvider.credential(user.email || '', securityForm.currentPassword);
+                await reauthenticateWithCredential(user, credential);
+            }
+            if (email !== (user.email || '')) await updateEmail(user, email);
+            if (securityForm.newPassword) await updatePassword(user, securityForm.newPassword);
+
+            await setDoc(doc(db, 'users', user.uid), {
+                email,
+                displayName: form.fullName.trim(),
+                updatedAt: new Date().toISOString(),
+            }, { merge: true });
+            setSecurityForm((prev) => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
+            setSecurityMsg({ type: 'success', text: 'Password/email updated successfully.' });
+            setAccountMsg({ type: 'success', text: 'Account details updated.' });
+        } catch (e: any) {
+            const code = e?.code || '';
+            if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+                setSecurityMsg({ type: 'error', text: 'Current password is incorrect.' });
+            } else if (code === 'auth/email-already-in-use') {
+                setSecurityMsg({ type: 'error', text: 'That email is already in use.' });
+            } else if (code === 'auth/too-many-requests') {
+                setSecurityMsg({ type: 'error', text: 'Too many attempts. Please wait and try again.' });
+            } else {
+                setSecurityMsg({ type: 'error', text: e?.message || 'Could not update account credentials.' });
+            }
+        }
         setSaving(false);
     };
 
     const handleLogout = async () => {
-        try { await signOut(auth); router.replace('/'); }
-        catch (e) { console.error('Sign out error:', e); }
+        setLoggingOut(true);
+        try {
+            await signOut(auth);
+            setAccountMsg({ type: 'success', text: 'Signed out successfully.' });
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                // Single controlled refresh after logout (no extra route animation).
+                window.location.replace('/');
+            }
+        } catch (e) {
+            setAccountMsg({ type: 'error', text: 'Sign out failed. Please try again.' });
+            console.error('Sign out error:', e);
+        } finally {
+            setLoggingOut(false);
+        }
     };
 
     const initials = (form.fullName || user?.email || 'S').charAt(0).toUpperCase();
@@ -187,7 +277,7 @@ export default function ProfileScreen() {
                         </TouchableOpacity>
                     </View>
                     <Text style={styles.locationHint}>
-                        📍 Used to calculate accurate shuttle fares. Tap "Update" anytime you move residence.
+                        {'\u{1F4CD} Used to calculate accurate shuttle fares. Tap "Update" anytime you move residence.'}
                     </Text>
                 </View>
 
@@ -198,11 +288,95 @@ export default function ProfileScreen() {
                         : <><Ionicons name="checkmark-circle" size={20} color="#fff" /><Text style={styles.saveBtnText}>Save Profile</Text></>
                     }
                 </TouchableOpacity>
+                {accountMsg && (
+                    <View style={[styles.inlineMsg, accountMsg.type === 'success' ? styles.msgSuccess : accountMsg.type === 'info' ? styles.msgInfo : styles.msgError]}>
+                        <Text style={styles.inlineMsgText}>{accountMsg.text}</Text>
+                    </View>
+                )}
+
+                <View style={styles.card}>
+                    <Text style={styles.sectionLabel}>Account Security</Text>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Email</Text>
+                        <View style={styles.inputRow}>
+                            <Ionicons name="mail-outline" size={18} color={C.dim} style={{ marginRight: 10 }} />
+                            <TextInput
+                                style={styles.input}
+                                value={securityForm.email}
+                                onChangeText={(v) => setSecurityForm((prev) => ({ ...prev, email: v }))}
+                                placeholder="Enter email"
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                placeholderTextColor={C.dim}
+                            />
+                        </View>
+                    </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Current Password</Text>
+                        <View style={styles.inputRow}>
+                            <Ionicons name="lock-closed-outline" size={18} color={C.dim} style={{ marginRight: 10 }} />
+                            <TextInput
+                                style={styles.input}
+                                value={securityForm.currentPassword}
+                                onChangeText={(v) => setSecurityForm((prev) => ({ ...prev, currentPassword: v }))}
+                                placeholder="Required for email/password changes"
+                                secureTextEntry
+                                placeholderTextColor={C.dim}
+                            />
+                        </View>
+                    </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>New Password</Text>
+                        <View style={styles.inputRow}>
+                            <Ionicons name="key-outline" size={18} color={C.dim} style={{ marginRight: 10 }} />
+                            <TextInput
+                                style={styles.input}
+                                value={securityForm.newPassword}
+                                onChangeText={(v) => setSecurityForm((prev) => ({ ...prev, newPassword: v }))}
+                                placeholder="Leave blank to keep current password"
+                                secureTextEntry
+                                placeholderTextColor={C.dim}
+                            />
+                        </View>
+                    </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Confirm New Password</Text>
+                        <View style={styles.inputRow}>
+                            <Ionicons name="checkmark-done-outline" size={18} color={C.dim} style={{ marginRight: 10 }} />
+                            <TextInput
+                                style={styles.input}
+                                value={securityForm.confirmPassword}
+                                onChangeText={(v) => setSecurityForm((prev) => ({ ...prev, confirmPassword: v }))}
+                                placeholder="Confirm password"
+                                secureTextEntry
+                                placeholderTextColor={C.dim}
+                            />
+                        </View>
+                    </View>
+                    <Text style={styles.locationHint}>Password rule: 8+ chars with uppercase, lowercase, number, and symbol.</Text>
+                    <TouchableOpacity style={styles.saveBtn} onPress={handleSecuritySave} disabled={saving}>
+                        {saving
+                            ? <ActivityIndicator color="#fff" />
+                            : <><Ionicons name="shield-checkmark" size={20} color="#fff" /><Text style={styles.saveBtnText}>Update Account Credentials</Text></>
+                        }
+                    </TouchableOpacity>
+                    {securityMsg && (
+                        <View style={[styles.inlineMsg, securityMsg.type === 'success' ? styles.msgSuccess : securityMsg.type === 'info' ? styles.msgInfo : styles.msgError]}>
+                            <Text style={styles.inlineMsgText}>{securityMsg.text}</Text>
+                        </View>
+                    )}
+                </View>
 
                 {/* Logout */}
-                <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-                    <Ionicons name="log-out-outline" size={20} color={C.error} />
-                    <Text style={styles.logoutText}>Sign Out</Text>
+                <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} disabled={loggingOut}>
+                    {loggingOut ? (
+                        <ActivityIndicator color={C.error} />
+                    ) : (
+                        <>
+                            <Ionicons name="log-out-outline" size={20} color={C.error} />
+                            <Text style={styles.logoutText}>Sign Out</Text>
+                        </>
+                    )}
                 </TouchableOpacity>
 
                 <Text style={styles.version}>Smart Shuttle v1.2.0 • Campus Edition</Text>
@@ -274,6 +448,17 @@ const styles = StyleSheet.create({
         gap: 10, borderWidth: 1, borderColor: 'rgba(248,113,113,0.2)', marginBottom: 24,
     },
     logoutText: { color: C.error, fontSize: 16, fontWeight: '700' },
+    inlineMsg: {
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        marginBottom: 12,
+        borderWidth: 1,
+    },
+    msgSuccess: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+    msgError: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+    msgInfo: { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' },
+    inlineMsgText: { fontSize: 12, fontWeight: '700', color: '#334155' },
 
     version: { textAlign: 'center', color: C.dim, fontSize: 12, fontWeight: '500' },
 });

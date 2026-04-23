@@ -14,6 +14,8 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
 const buildGeneratedStudentId = () => `S${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -102,17 +104,27 @@ app.get('/', (req, res) => { res.send('API Running'); });
 app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
   console.log("Admin Create User Attempt:", req.body.email);
   const { email, password, displayName, role, studentId } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
 
-  if (!email || !password || !role) {
+  if (!normalizedEmail || !password || !role) {
     return res.status(400).send({ error: "Missing required fields" });
+  }
+  if (!EMAIL_REGEX.test(normalizedEmail)) {
+    return res.status(400).send({ error: "Invalid email address" });
+  }
+  if (!STRONG_PASSWORD_REGEX.test(password)) {
+    return res.status(400).send({ error: "Password must be at least 8 chars with uppercase, lowercase, number, and symbol" });
+  }
+  if (!['student', 'driver', 'admin'].includes(role)) {
+    return res.status(400).send({ error: "Invalid role" });
   }
 
   try {
     // 1. Create the Auth User
     const userRecord = await admin.auth().createUser({
-      email,
+      email: normalizedEmail,
       password,
-      displayName: displayName || email.split('@')[0],
+      displayName: displayName || normalizedEmail.split('@')[0],
     });
 
     // 2. Set Custom Claims (Roles)
@@ -120,9 +132,9 @@ app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
 
     // 3. Create User Document
     await db.collection('users').doc(userRecord.uid).set({
-      email,
+      email: normalizedEmail,
       role,
-      displayName: displayName || email.split('@')[0],
+      displayName: displayName || normalizedEmail.split('@')[0],
       studentId: studentId || null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -138,7 +150,7 @@ app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
       await db.collection('users').doc(userRecord.uid).update({ studentId: generatedId });
     }
 
-    console.log(`Successfully created ${role}: ${email}`);
+    console.log(`Successfully created ${role}: ${normalizedEmail}`);
     res.status(201).send({ message: "User created successfully", uid: userRecord.uid });
   } catch (error) {
     console.error("User Creation Failed:", error.message);

@@ -1,4 +1,4 @@
-import { Tabs, useRouter } from 'expo-router';
+import { Redirect, Tabs, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Platform, ActivityIndicator, View, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,8 +25,11 @@ export default function TabLayout() {
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
-            if (user) setAuthed(true);
-            else router.replace('/');
+            if (user) {
+                setAuthed(true);
+            } else {
+                setAuthed(false);
+            }
             setChecked(true);
         });
         return () => unsub();
@@ -47,7 +50,12 @@ export default function TabLayout() {
         );
     }
 
-    if (!authed) return null;
+    // On web, logout flow performs a single hard refresh from profile screen.
+    // Returning null here avoids an extra redirect animation/flicker.
+    if (!authed) {
+        if (Platform.OS === 'web') return null;
+        return <Redirect href="/" />;
+    }
 
     return (
         <Tabs
