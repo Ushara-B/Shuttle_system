@@ -16,7 +16,8 @@ import {
     History,
     BarChart3,
     Settings,
-    LayoutDashboard
+    LayoutDashboard,
+    UserCircle2
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
@@ -272,6 +273,14 @@ const DriverDashboard = () => {
     };
 
     const chartData = useMemo(() => buildLastNDays(recentTrips), [recentTrips]);
+    const currentUser = auth.currentUser;
+    const currentName = currentUser?.displayName || currentUser?.email || 'Driver';
+    const pageTitleMap = {
+        scan: 'Live Scan',
+        history: 'Trip History',
+        analytics: 'Analytics',
+        settings: 'Fare Settings',
+    };
 
     const nav = [
         { id: 'scan', label: 'Live Scan', icon: Scan },
@@ -298,12 +307,28 @@ const DriverDashboard = () => {
                         );
                     })}
                 </div>
-                <button className="admin-logout-btn" onClick={() => auth.signOut()}>
-                    <LogOut size={16} /> Logout
-                </button>
             </aside>
 
             <main className="admin-content">
+                <header className="admin-topbar">
+                    <div>
+                        <h1 className="admin-page-title">{pageTitleMap[activeSection] || 'Driver Dashboard'}</h1>
+                        <p className="admin-page-subtitle">Shuttle trip operations workspace</p>
+                    </div>
+                    <div className="admin-user-actions">
+                        <div className="admin-user-chip">
+                            <UserCircle2 size={18} />
+                            <div>
+                                <p>{currentName}</p>
+                                <span>Driver</span>
+                            </div>
+                        </div>
+                        <button className="admin-header-logout" onClick={() => auth.signOut()}>
+                            <LogOut size={16} /> Logout
+                        </button>
+                    </div>
+                </header>
+
                 <div className="admin-overview-grid">
                     <div className="admin-kpi-card"><span>Total Revenue</span><strong>Rs. {stats.revenue}</strong></div>
                     <div className="admin-kpi-card"><span>Total Trips</span><strong>{stats.trips}</strong></div>

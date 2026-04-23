@@ -15,7 +15,8 @@ import {
   LayoutDashboard,
   BarChart3,
   Filter,
-  ShieldCheck
+  ShieldCheck,
+  UserCircle2
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
@@ -184,6 +185,18 @@ const AdminDashboard = () => {
   );
 
   const chartData = useMemo(() => buildLastNDays(payments), [payments]);
+  const currentUser = auth.currentUser;
+  const currentName = currentUser?.displayName || currentUser?.email || 'Admin User';
+  const currentRole = 'Administrator';
+  const pageTitleMap = {
+    overview: 'Overview',
+    users: 'User Management',
+    tokens: 'Token Management',
+    trips: 'Trip Settings',
+    history: 'History',
+    analytics: 'Analytics',
+    governance: 'Governance',
+  };
 
   const showMessage = (type, text) => {
     setStatus({ type, text });
@@ -292,12 +305,28 @@ const AdminDashboard = () => {
             );
           })}
         </div>
-        <button className="admin-logout-btn" onClick={() => auth.signOut()}>
-          <LogOut size={16} /> Logout
-        </button>
       </aside>
 
       <main className="admin-content">
+        <header className="admin-topbar">
+          <div>
+            <h1 className="admin-page-title">{pageTitleMap[activeSection] || 'Dashboard'}</h1>
+            <p className="admin-page-subtitle">Smart Shuttle control center</p>
+          </div>
+          <div className="admin-user-actions">
+            <div className="admin-user-chip">
+              <UserCircle2 size={18} />
+              <div>
+                <p>{currentName}</p>
+                <span>{currentRole}</span>
+              </div>
+            </div>
+            <button className="admin-header-logout" onClick={() => auth.signOut()}>
+              <LogOut size={16} /> Logout
+            </button>
+          </div>
+        </header>
+
         <div className="admin-overview-grid">
           <div className="admin-kpi-card"><span>Total Students</span><strong>{students.length}</strong></div>
           <div className="admin-kpi-card"><span>Total Drivers</span><strong>{drivers.length}</strong></div>
