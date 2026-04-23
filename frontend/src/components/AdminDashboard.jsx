@@ -5,14 +5,15 @@ import { EmailAuthProvider, reauthenticateWithCredential, updateEmail, updatePas
 import {
   Users, Wallet, Route, UserPlus, Search, LogOut, Save, History,
   Settings, UserCog, LayoutDashboard, BarChart3, Filter, ShieldCheck,
-  UserCircle2, GraduationCap, Bus, Ticket, Bell, Lock, User
+  UserCircle2, GraduationCap, Bus, Ticket, Bell, Lock, User, Trash2, Eye, Plus
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import './Admin.css';
 
 const navItems = [
   { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'users', label: 'Students & Users', icon: Users },
+  { id: 'students', label: 'Students', icon: GraduationCap },
+  { id: 'users', label: 'Users', icon: Users },
   { id: 'tokens', label: 'Tokens', icon: Ticket },
   { id: 'trips', label: 'Shuttle Services', icon: Bus },
   { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -98,6 +99,14 @@ const AdminDashboard = () => {
   const [noticeForm, setNoticeForm] = useState({ title: '', note: '' });
   const [profileForm, setProfileForm] = useState({ displayName: '', email: '', currentPassword: '', newPassword: '', confirmPassword: '' });
   const [profileSaving, setProfileSaving] = useState(false);
+  const [studentYearFilter, setStudentYearFilter] = useState('all');
+  const [selectedStudentUid, setSelectedStudentUid] = useState('');
+  const [studentModalOpen, setStudentModalOpen] = useState(false);
+  const [studentTopupAmount, setStudentTopupAmount] = useState('');
+  const [studentTopupSubmitting, setStudentTopupSubmitting] = useState(false);
+  const [addStudentOpen, setAddStudentOpen] = useState(false);
+  const [addStudentForm, setAddStudentForm] = useState({ displayName: '', email: '', password: '', studentId: '' });
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   useEffect(() => {
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -130,6 +139,7 @@ const AdminDashboard = () => {
   const students = useMemo(() => users.filter((u) => u.role === 'student'), [users]);
   const drivers = useMemo(() => users.filter((u) => u.role === 'driver'), [users]);
   const admins = useMemo(() => users.filter((u) => u.role === 'admin'), [users]);
+  const nonStudents = useMemo(() => users.filter((u) => u.role !== 'student'), [users]);
 
   const walletMap = useMemo(() => {
     const map = {};
@@ -165,6 +175,29 @@ const AdminDashboard = () => {
       return name.includes(text) || email.includes(text) || sid.includes(text);
     });
   }, [users, search]);
+
+  const filteredStudents = useMemo(() => {
+    const base = filteredUsers.filter((u) => u.role === 'student');
+    if (studentYearFilter === 'all') return base;
+    return base.filter((s) => String(s.currentYear || '') === String(studentYearFilter));
+  }, [filteredUsers, studentYearFilter]);
+
+  const filteredNonStudents = useMemo(() => filteredUsers.filter((u) => u.role !== 'student'), [filteredUsers]);
+
+  const selectedStudent = useMemo(() => {
+    if (!selectedStudentUid) return null;
+    return userMap[selectedStudentUid] || null;
+  }, [selectedStudentUid, userMap]);
+
+  const selectedStudentWallet = useMemo(() => {
+    if (!selectedStudentUid) return null;
+    return walletMap[selectedStudentUid] || null;
+  }, [selectedStudentUid, walletMap]);
+
+  const selectedStudentPayments = useMemo(() => {
+    if (!selectedStudentUid) return [];
+    return payments.filter((p) => p.studentUid === selectedStudentUid).slice(0, 25);
+  }, [payments, selectedStudentUid]);
 
   const filteredHistory = useMemo(() => {
     return payments.filter((p) => {
@@ -202,7 +235,8 @@ const AdminDashboard = () => {
 
   const pageTitleMap = {
     overview: 'Dashboard',
-    users: 'Students & Users',
+    students: 'Students',
+    users: 'Users',
     tokens: 'Token Management',
     trips: 'Shuttle Services',
     notifications: 'Notifications',
@@ -247,6 +281,95 @@ const AdminDashboard = () => {
       showMessage('success', 'User created successfully');
     } catch (error) {
       showMessage('error', error.message);
+    }
+  };
+
+  const handleAddStudent = async (e) => {
+    e.preventDefault();
+    const email = addStudentForm.email.trim().toLowerCase();
+    const password = addStudentForm.password;
+    if (!addStudentForm.displayName.trim()) return showMessage('error', 'Student name is required');
+    if (!EMAIL_REGEX.test(email)) return showMessage('error', 'Enter a valid email address');
+    if (!STRONG_PASSWORD_REGEX.test(password)) return showMessage('error', 'Password must be 8+ chars with upper, lower, number, symbol');
+    try {
+      const response = await apiFetch('/api/admin/create-user', {
+        method: 'POST',
+        auth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'student',
+          displayName: addStudentForm.displayName.trim(),
+          email,
+          password,
+          studentId: addStudentForm.studentId || '',
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to add student');
+      setAddStudentForm({ displayName: '', email: '', password: '', studentId: '' });
+      setAddStudentOpen(false);
+      showMessage('success', 'Student added successfully');
+    } catch (error) {
+      showMessage('error', error.message);
+    }
+  };
+
+  const openStudentModal = (uid) => {
+    setSelectedStudentUid(uid);
+    setStudentTopupAmount('');
+    setStudentModalOpen(true);
+  };
+
+  const handleStudentTopup = async (e) => {
+    e.preventDefault();
+    if (!selectedStudentUid) return;
+    if (studentTopupSubmitting) return;
+    const amount = Number(studentTopupAmount);
+    if (!amount || amount <= 0) return showMessage('error', 'Enter a valid top-up amount');
+    const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    setStudentTopupSubmitting(true);
+    try {
+      const response = await apiFetch('/api/admin/adjust-balance', {
+        method: 'POST',
+        auth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentUid: selectedStudentUid, amount, clientRequestId }),
+      });
+      const payload = await response.json();
+      if (response.status === 409) throw new Error('Duplicate click blocked. Top-up already processed.');
+      if (!response.ok) throw new Error(payload.error || 'Top-up failed');
+      setStudentTopupAmount('');
+      showMessage('success', 'Top-up successful');
+    } catch (error) {
+      showMessage('error', error.message);
+    } finally {
+      setStudentTopupSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (uid) => {
+    if (!uid) return;
+    if (deleteSubmitting) return;
+    const user = userMap[uid];
+    const label = user?.displayName || user?.email || uid;
+    const ok = window.confirm(`Delete user "${label}"?\n\nThis will remove their login access and delete their profile/wallet documents. Payments history will remain.`);
+    if (!ok) return;
+    setDeleteSubmitting(true);
+    try {
+      const response = await apiFetch('/api/admin/delete-user', {
+        method: 'POST',
+        auth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Delete failed');
+      showMessage('success', 'User deleted');
+    } catch (error) {
+      showMessage('error', error.message);
+    } finally {
+      setDeleteSubmitting(false);
+      if (selectedStudentUid === uid) setStudentModalOpen(false);
     }
   };
 
@@ -570,11 +693,174 @@ const AdminDashboard = () => {
             </section>
           )}
 
+          {studentModalOpen && selectedStudent && (
+            <div className="modern-modal-overlay" onClick={() => setStudentModalOpen(false)}>
+              <div className="modern-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modern-modal-header">
+                  <div>
+                    <h3 style={{ margin: 0 }}>Student Profile</h3>
+                    <p style={{ margin: '0.25rem 0 0', color: '#64748b' }}>{selectedStudent.displayName || selectedStudent.email}</p>
+                  </div>
+                  <button className="modern-btn modern-btn-outline btn-sm" type="button" onClick={() => setStudentModalOpen(false)}>Close</button>
+                </div>
+
+                <div className="admin-grid-layout" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div className="admin-panel" style={{ margin: 0 }}>
+                    <div className="admin-panel-header">
+                      <Wallet size={18} color="#10b981" />
+                      <h3>Wallet Top-up</h3>
+                    </div>
+                    <div style={{ color: '#3b82f6', fontSize: '0.9rem', fontWeight: 700 }}>
+                      Current balance: Rs. {selectedStudentWallet?.balance || 0}
+                    </div>
+                    <form className="modern-form-grid" onSubmit={handleStudentTopup}>
+                      <input className="modern-input" type="number" min="1" placeholder="Top-up amount (Rs.)" value={studentTopupAmount} onChange={(e) => setStudentTopupAmount(e.target.value)} required />
+                      <button type="submit" className="modern-btn" disabled={studentTopupSubmitting}>
+                        {studentTopupSubmitting ? 'Processing...' : 'Top up now'}
+                      </button>
+                    </form>
+                    <button type="button" className="modern-btn btn-danger-sm" onClick={() => handleDeleteUser(selectedStudentUid)} disabled={deleteSubmitting}>
+                      <Trash2 size={16} /> Delete student
+                    </button>
+                  </div>
+
+                  <div className="admin-panel" style={{ margin: 0 }}>
+                    <div className="admin-panel-header">
+                      <UserCircle2 size={18} color="#3b82f6" />
+                      <h3>Student Details</h3>
+                    </div>
+                    <div className="kv">
+                      <div><span>Name</span><strong>{selectedStudent.displayName || '-'}</strong></div>
+                      <div><span>Email</span><strong>{selectedStudent.email || '-'}</strong></div>
+                      <div><span>Student ID</span><strong>{selectedStudent.studentId || selectedStudentWallet?.studentId || '-'}</strong></div>
+                      <div><span>Year</span><strong>{selectedStudent.currentYear || '-'}</strong></div>
+                      <div><span>UID</span><strong style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace' }}>{selectedStudentUid}</strong></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="admin-panel" style={{ marginTop: '1rem' }}>
+                  <div className="admin-panel-header">
+                    <History size={18} color="#06b6d4" />
+                    <h3>Recent Top-ups & Trips</h3>
+                  </div>
+                  <div className="modern-table-container">
+                    <table className="modern-table">
+                      <thead><tr><th>Type</th><th>Direction</th><th>Amount</th><th>Date</th></tr></thead>
+                      <tbody>
+                        {selectedStudentPayments.map((p) => (
+                          <tr key={p.id}>
+                            <td>{p.type}</td>
+                            <td>{p.type === 'fare-deduction' ? formatDirection(p.direction) : '-'}</td>
+                            <td className={p.amount < 0 ? 'neg' : 'pos'}>Rs. {Math.abs(p.amount || 0)}</td>
+                            <td>{p.dateKey || dateKey(p.timestamp)}</td>
+                          </tr>
+                        ))}
+                        {selectedStudentPayments.length === 0 && (
+                          <tr><td colSpan={4} className="modern-empty-cell">No activity found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {addStudentOpen && (
+            <div className="modern-modal-overlay" onClick={() => setAddStudentOpen(false)}>
+              <div className="modern-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modern-modal-header">
+                  <div>
+                    <h3 style={{ margin: 0 }}>Add Student</h3>
+                    <p style={{ margin: '0.25rem 0 0', color: '#64748b' }}>Create a new student account.</p>
+                  </div>
+                  <button className="modern-btn modern-btn-outline btn-sm" type="button" onClick={() => setAddStudentOpen(false)}>Close</button>
+                </div>
+                <form className="modern-form-grid" onSubmit={handleAddStudent}>
+                  <input className="modern-input" placeholder="Full name" value={addStudentForm.displayName} onChange={(e) => setAddStudentForm((p) => ({ ...p, displayName: e.target.value }))} required />
+                  <input className="modern-input" type="email" placeholder="Email" value={addStudentForm.email} onChange={(e) => setAddStudentForm((p) => ({ ...p, email: e.target.value }))} required />
+                  <input className="modern-input" type="password" placeholder="Password (8+ strong)" value={addStudentForm.password} onChange={(e) => setAddStudentForm((p) => ({ ...p, password: e.target.value }))} required />
+                  <input className="modern-input" placeholder="Student ID (optional)" value={addStudentForm.studentId} onChange={(e) => setAddStudentForm((p) => ({ ...p, studentId: e.target.value }))} />
+                  <button type="submit" className="modern-btn">Create Student</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'students' && (
+            <section>
+              <div className="admin-section-header-modern">
+                <h2>Students</h2>
+                <p>Browse registered students, view profiles, and top up wallets.</p>
+              </div>
+              <div className="admin-panel">
+                <div className="admin-panel-header" style={{ justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <GraduationCap size={18} color="#7c3aed" />
+                    <h3 style={{ margin: 0 }}>Student Directory</h3>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <select className="modern-select" style={{ marginBottom: 0, width: 200 }} value={studentYearFilter} onChange={(e) => setStudentYearFilter(e.target.value)}>
+                      <option value="all">All years</option>
+                      <option value="1">Year 1</option>
+                      <option value="2">Year 2</option>
+                      <option value="3">Year 3</option>
+                      <option value="4">Year 4</option>
+                    </select>
+                    <button type="button" className="modern-btn" onClick={() => setAddStudentOpen(true)}>
+                      <Plus size={16} /> Add Student
+                    </button>
+                  </div>
+                </div>
+
+                <div className="modern-table-container">
+                  <table className="modern-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Student ID</th>
+                        <th>Year</th>
+                        <th>Balance</th>
+                        <th style={{ width: 220 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredStudents.map((s) => (
+                        <tr key={s.id}>
+                          <td>{s.displayName || '-'}</td>
+                          <td>{s.email || '-'}</td>
+                          <td>{s.studentId || walletMap[s.id]?.studentId || '-'}</td>
+                          <td>{s.currentYear || '-'}</td>
+                          <td className="pos">Rs. {walletMap[s.id]?.balance || 0}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button type="button" className="modern-btn modern-btn-outline btn-sm" onClick={() => openStudentModal(s.id)}>
+                                <Eye size={15} /> View
+                              </button>
+                              <button type="button" className="modern-btn btn-danger-sm btn-sm" onClick={() => handleDeleteUser(s.id)} disabled={deleteSubmitting}>
+                                <Trash2 size={15} /> Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredStudents.length === 0 && (
+                        <tr><td colSpan={6} className="modern-empty-cell">No students found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          )}
+
           {activeSection === 'users' && (
             <section>
               <div className="admin-section-header-modern">
-                <h2>User Management</h2>
-                <p>Create and explore student, driver, and admin profiles.</p>
+                <h2>Users</h2>
+                <p>Create and manage drivers and admins. You can also delete any user account.</p>
               </div>
               <div className="admin-grid-layout">
                 <div className="admin-panel">
@@ -596,19 +882,32 @@ const AdminDashboard = () => {
 
                 <div className="admin-panel">
                   <div className="admin-panel-header">
-                    <Users size={18} color="#eab308" />
-                    <h3>Directory Setup</h3>
+                    <Users size={18} color="#3b82f6" />
+                    <h3>All Users</h3>
                   </div>
-                  <div className="admin-recent-list" style={{ height: '100%', maxHeight: '420px' }}>
-                    {filteredUsers.map((u) => (
-                      <div key={u.id} className="admin-recent-item">
-                        <div className="admin-recent-item-info">
-                          <span className="admin-recent-item-title">{u.displayName || 'No Name'}</span>
-                          <span className="admin-recent-item-sub">{u.email}</span>
-                        </div>
-                        <span className="admin-badge badge-green">{u.role}</span>
-                      </div>
-                    ))}
+                  <div className="modern-table-container">
+                    <table className="modern-table">
+                      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th style={{ width: 180 }}>Actions</th></tr></thead>
+                      <tbody>
+                        {filteredNonStudents.map((u) => (
+                          <tr key={u.id}>
+                            <td>{u.displayName || '-'}</td>
+                            <td>{u.email || '-'}</td>
+                            <td><span className="admin-badge badge-blue">{u.role}</span></td>
+                            <td>
+                              <div className="row-actions">
+                                <button type="button" className="modern-btn btn-danger-sm btn-sm" onClick={() => handleDeleteUser(u.id)} disabled={deleteSubmitting}>
+                                  <Trash2 size={15} /> Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredNonStudents.length === 0 && (
+                          <tr><td colSpan={4} className="modern-empty-cell">No users found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

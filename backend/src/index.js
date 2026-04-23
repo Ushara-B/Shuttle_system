@@ -16,6 +16,7 @@ admin.initializeApp({
 const db = admin.firestore();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+const MIN_WALLET_BALANCE = -1000;
 
 const buildGeneratedStudentId = () => `S${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -155,6 +156,26 @@ app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error("User Creation Failed:", error.message);
     res.status(400).send({ error: error.message });
+  }
+});
+
+// Admin: delete a user account (Auth + Firestore docs). Keeps payments history for audit.
+app.post('/api/admin/delete-user', verifyAdmin, async (req, res) => {
+  const { uid } = req.body || {};
+  if (!uid) return res.status(400).send({ error: 'Missing uid' });
+  if (uid === req.user?.uid) return res.status(400).send({ error: 'You cannot delete your own admin account.' });
+  try {
+    // Delete Auth user first (prevents further logins).
+    await admin.auth().deleteUser(uid);
+
+    // Best-effort cleanup of Firestore docs (audit/payment history remains).
+    await db.collection('users').doc(uid).delete().catch(() => {});
+    await db.collection('wallets').doc(uid).delete().catch(() => {});
+
+    res.status(200).send({ message: 'User deleted', uid });
+  } catch (error) {
+    console.error('Delete user failed:', error.message);
+    res.status(400).send({ error: error.message || 'Failed to delete user' });
   }
 });
 // --- TRANSACTION ENDPOINTS ---
@@ -344,7 +365,9 @@ app.post('/api/transactions/scan', async (req, res) => {
       if (!walletDoc.exists) throw new Error("Student wallet not found");
 
       const currentBalance = walletDoc.data().balance || 0;
-      if (currentBalance < finalFare) throw new Error(`Insufficient balance. Need Rs.${finalFare}, have Rs.${currentBalance}`);
+      if ((currentBalance - finalFare) < MIN_WALLET_BALANCE) {
+        throw new Error(`Insufficient balance. Minimum allowed is Rs.${MIN_WALLET_BALANCE}. Need Rs.${finalFare}, have Rs.${currentBalance}`);
+      }
 
       const newBalance = currentBalance - finalFare;
 
