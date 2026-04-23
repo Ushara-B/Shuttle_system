@@ -5,17 +5,17 @@ import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestor
 import { Ionicons } from '@expo/vector-icons';
 
 export default function HistoryScreen() {
-    const [logs, setLogs] = useState([]);
+    const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const studentUid = auth.currentUser?.uid;
         if (!studentUid) return;
 
+        // Fallback to sorting locally if composite index is missing
         const q = query(
             collection(db, "payments"),
-            where("studentUid", "==", studentUid),
-            orderBy("timestamp", "desc")
+            where("studentUid", "==", studentUid)
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -23,14 +23,25 @@ export default function HistoryScreen() {
                 id: doc.id,
                 ...doc.data()
             }));
+
+            // Sort locally (descending timestamp) to bypass the need for a composite index
+            history.sort((a: any, b: any) => {
+                const timeA = a.timestamp?.seconds || 0;
+                const timeB = b.timestamp?.seconds || 0;
+                return timeB - timeA;
+            });
+
             setLogs(history);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching transactions:", error);
             setLoading(false);
         });
 
         return () => unsubscribe();
     }, []);
 
-    const formatDate = (timestamp) => {
+    const formatDate = (timestamp: any) => {
         if (!timestamp?.toDate) return '';
         const d = timestamp.toDate();
         return d.toLocaleDateString('en-US', {
@@ -38,18 +49,18 @@ export default function HistoryScreen() {
         });
     };
 
-    const formatTime = (timestamp) => {
+    const formatTime = (timestamp: any) => {
         if (!timestamp?.toDate) return '';
         return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    const getDirectionLabel = (dir) => {
+    const getDirectionLabel = (dir: string) => {
         if (dir === 'home-to-campus') return '🏠 → 🏫';
         if (dir === 'campus-to-home') return '🏫 → 🏠';
         return '🚌';
     };
 
-    const renderItem = ({ item }) => {
+    const renderItem = ({ item }: { item: any }) => {
         const isFare = item.type === 'fare-deduction';
         const isTopup = item.type === 'top-up';
 
@@ -60,7 +71,7 @@ export default function HistoryScreen() {
                     <Ionicons
                         name={isTopup ? 'arrow-down' : 'bus'}
                         size={20}
-                        color="#fff"
+                        color={isTopup ? '#059669' : '#7C3AED'}
                     />
                 </View>
 
@@ -117,16 +128,19 @@ export default function HistoryScreen() {
     return (
         <View style={styles.container}>
             <View style={styles.headerBar}>
-                <Text style={styles.headerTitle}>Trip History</Text>
-                <Text style={styles.headerCount}>{logs.length} transactions</Text>
+                <View>
+                    <Text style={styles.headerTitle}>Transactions</Text>
+                    <Text style={styles.headerCount}>{logs.length} items logged</Text>
+                </View>
+                <Ionicons name="filter" size={24} color="#4F46E5" />
             </View>
 
             {loading ? (
-                <ActivityIndicator style={styles.center} color="#6366f1" />
+                <ActivityIndicator style={styles.center} color="#4F46E5" />
             ) : logs.length === 0 ? (
-                <View style={styles.center}>
-                    <Ionicons name="receipt-outline" size={48} color="#334155" />
-                    <Text style={styles.emptyText}>No transactions yet</Text>
+                <View style={[styles.center, { paddingHorizontal: 40 }]}>
+                    <Ionicons name="receipt-outline" size={64} color="#CBD5E1" />
+                    <Text style={[styles.emptyText, { textAlign: 'center' }]}>You currently haven't any transactional data</Text>
                 </View>
             ) : (
                 <FlatList
@@ -142,73 +156,85 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0f172a' },
+    container: { flex: 1, backgroundColor: '#F5F6FA' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     headerBar: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingTop: 16,
-        paddingBottom: 8,
+        paddingTop: 20,
+        paddingBottom: 12,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F8'
     },
-    headerTitle: { color: '#fff', fontSize: 22, fontWeight: '800' },
-    headerCount: { color: '#94a3b8', fontSize: 13 },
-    listContent: { padding: 20, paddingTop: 8 },
+    headerTitle: { color: '#1A1A3A', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+    headerCount: { color: '#6B7280', fontSize: 13, fontWeight: '500' },
+    listContent: { padding: 20, paddingTop: 12 },
     logItem: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        backgroundColor: '#1e293b',
+        backgroundColor: '#FFFFFF',
         padding: 16,
-        borderRadius: 16,
+        borderRadius: 20,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: '#334155',
+        borderColor: '#E8E9F5',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.03,
+        shadowRadius: 5,
+        elevation: 1
     },
     iconContainer: {
-        width: 42,
-        height: 42,
-        borderRadius: 12,
+        width: 44,
+        height: 44,
+        borderRadius: 14,
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: 2,
     },
-    topupIcon: { backgroundColor: '#22c55e' },
-    fareIcon: { backgroundColor: '#6366f1' },
+    topupIcon: { backgroundColor: '#ECFDF5' },
+    fareIcon: { backgroundColor: '#F5F3FF' },
     logInfo: { flex: 1, marginLeft: 14 },
     titleRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
     },
-    logType: { color: '#fff', fontSize: 15, fontWeight: '700' },
+    logType: { color: '#1A1A3A', fontSize: 16, fontWeight: '700' },
     directionBadge: {
-        fontSize: 12,
-        backgroundColor: 'rgba(99, 102, 241, 0.15)',
+        fontSize: 10,
+        fontWeight: '700',
+        backgroundColor: '#EEF2FF',
+        color: '#4F46E5',
         paddingHorizontal: 8,
         paddingVertical: 2,
         borderRadius: 8,
         overflow: 'hidden',
     },
-    logDate: { color: '#94a3b8', fontSize: 12, marginTop: 3 },
+    logDate: { color: '#6B7280', fontSize: 13, marginTop: 2, fontWeight: '500' },
     tripDetails: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 6,
-        marginTop: 8,
+        marginTop: 10,
     },
     detailChip: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: '#F9FAFB',
         paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#F3F4F6'
     },
-    detailText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
-    amount: { fontSize: 16, fontWeight: '800', marginTop: 2 },
-    positive: { color: '#22c55e' },
-    negative: { color: '#ef4444' },
-    emptyText: { color: '#94a3b8', marginTop: 10, fontSize: 16 },
+    detailText: { color: '#6B7280', fontSize: 11, fontWeight: '700' },
+    amount: { fontSize: 17, fontWeight: '900', marginTop: 2 },
+    positive: { color: '#059669' },
+    negative: { color: '#1A1A3A' },
+    emptyText: { color: '#9CA3AF', marginTop: 16, fontSize: 16, fontWeight: '600' },
 });

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
-import { LogIn } from 'lucide-react';
+import { Bus } from 'lucide-react';
 
 const Login = () => {
     const [email, setEmail] = useState('');
@@ -27,10 +27,10 @@ const Login = () => {
             <div className="login-card">
                 <div className="login-header">
                     <div className="logo-icon">
-                        <LogIn size={32} color="#6366f1" />
+                        <Bus size={48} color="#4f46e5" strokeWidth={2.5} />
                     </div>
-                    <h2>Shuttle Login</h2>
-                    <p>Admin & Conductor Access</p>
+                    <h2>Smart Shuttle</h2>
+                    <p>Admin & Conductor Dashboard</p>
                 </div>
 
                 <form onSubmit={handleSubmit}>

@@ -178,16 +178,17 @@ const DriverDashboard = () => {
         setStatus(null);
         setLastResult(null);
 
-        // Try to get the browser's GPS for distance calculation
+        // Try to get the driver's GPS location for distance calculation.
+        // If unavailable, the backend will fall back to the student's saved home location.
         let lat = null, lng = null;
         try {
             const pos = await new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, enableHighAccuracy: true });
+                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 6000, enableHighAccuracy: true });
             });
             lat = pos.coords.latitude;
             lng = pos.coords.longitude;
         } catch {
-            console.warn("GPS unavailable — using flat fare fallback");
+            console.warn("Driver GPS unavailable — backend will use student's saved home location.");
         }
 
         try {
@@ -199,13 +200,12 @@ const DriverDashboard = () => {
                 route: direction === 'home-to-campus' ? 'Home → Campus' : 'Campus → Home',
             };
 
-            // Add GPS data if available
+            // Only send GPS if we actually got a fix — never send a fabricated distance
             if (lat && lng) {
                 body.latitude = lat;
                 body.longitude = lng;
-            } else {
-                body.farePrice = pricePerKm * 5; // Fallback: assume 5km
             }
+            // No fallback farePrice anymore — the backend calculates it correctly
 
             const res = await apiFetch('/api/transactions/scan', {
                 method: 'POST',
@@ -351,7 +351,7 @@ const DriverDashboard = () => {
                                 <div className={`scanner-viewfinder ${scanning ? 'active' : ''}`}>
                                     <div className="corner tl" /><div className="corner tr" /><div className="corner bl" /><div className="corner br" />
                                     <div id="qr-reader" ref={scannerRef} style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden' }} />
-                                    {!scanning && <div className="scanner-placeholder"><Scan size={48} strokeWidth={1.5} color="#6366f1" /><p>Camera is off</p></div>}
+                                    {!scanning && <div className="scanner-placeholder"><Scan size={48} strokeWidth={1.5} color="#4f46e5" /><p>Camera is off</p></div>}
                                     {scanning && <div className="scan-laser" />}
                                 </div>
                                 <div className="scanner-actions">

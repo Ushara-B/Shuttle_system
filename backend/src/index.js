@@ -266,7 +266,7 @@ app.post('/api/transactions/scan', async (req, res) => {
     }
 
     // === FARE CALCULATION ===
-    let finalFare = farePrice || 50;
+    let finalFare = farePrice || null;
     let distanceKm = null;
     let effectivePricePerKm = null;
     let pricingSource = 'flat-fare';
@@ -289,11 +289,32 @@ app.post('/api/transactions/scan', async (req, res) => {
       }
     }
 
-    if (latitude && longitude && effectivePricePerKm) {
-      distanceKm = haversineDistance(latitude, longitude, CAMPUS_COORDS.lat, CAMPUS_COORDS.lng);
+    // Resolve GPS coords: prefer driver-sent coords, fall back to student's saved homeLocation
+    let resolvedLat = latitude || null;
+    let resolvedLng = longitude || null;
+
+    if ((!resolvedLat || !resolvedLng) && effectivePricePerKm) {
+      // Try student's saved home location
+      const studentUserDoc = await db.collection('users').doc(resolvedStudentUid).get();
+      const homeLocation = studentUserDoc.exists ? studentUserDoc.data()?.homeLocation : null;
+      if (homeLocation?.latitude && homeLocation?.longitude) {
+        resolvedLat = homeLocation.latitude;
+        resolvedLng = homeLocation.longitude;
+        pricingSource += '+student-home';
+        console.log(`Using student home location (${resolvedLat}, ${resolvedLng}) for distance calc`);
+      }
+    }
+
+    if (resolvedLat && resolvedLng && effectivePricePerKm) {
+      distanceKm = Math.round(haversineDistance(resolvedLat, resolvedLng, CAMPUS_COORDS.lat, CAMPUS_COORDS.lng) * 10) / 10;
       finalFare = Math.round(distanceKm * effectivePricePerKm);
       if (finalFare < 10) finalFare = 10;
-      console.log(`GPS Fare: ${distanceKm}km × Rs.${effectivePricePerKm}/km = Rs.${finalFare} (${pricingSource})`);
+      console.log(`Fare: ${distanceKm}km × Rs.${effectivePricePerKm}/km = Rs.${finalFare} (${pricingSource})`);
+    } else if (!finalFare) {
+      // Absolute last resort: minimum flat fare only — never guess a distance
+      finalFare = 50;
+      pricingSource = 'minimum-flat';
+      console.warn(`No GPS or home location available for student ${resolvedStudentUid}. Charging minimum flat fare Rs.${finalFare}`);
     }
 
     // Get student name
