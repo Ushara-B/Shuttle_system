@@ -1,52 +1,98 @@
-import { Tabs, useRouter } from 'expo-router';
+import { Redirect, Tabs, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Platform, ActivityIndicator, View } from 'react-native';
+import { Platform, ActivityIndicator, View, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../firebase';
+import { auth, db } from '../../firebase';
+import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
+
+const C = {
+    bg: '#FFFFFF',
+    tabBar: '#FFFFFF',
+    tabBorder: '#F0F0F8',
+    header: '#F0EDFF',
+    headerBorder: '#DDD6FE',
+    primary: '#7C3AED',
+    inactive: '#9CA3AF',
+    text: '#3B0764',
+};
 
 export default function TabLayout() {
+    // Tab layout is guarded by Firebase auth:
+    // - While checking auth, we show a loader.
+    // - When logged out, tabs are not rendered (and native redirects to login).
     const [checked, setChecked] = useState(false);
     const [authed, setAuthed] = useState(false);
+    const [hasNotifications, setHasNotifications] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
+        // Keep `authed` in sync so logout immediately blocks access to tabs.
         const unsub = onAuthStateChanged(auth, (user) => {
             if (user) {
                 setAuthed(true);
             } else {
-                router.replace('/');
+                setAuthed(false);
             }
             setChecked(true);
         });
         return () => unsub();
-    }, []);
+    }, [router]);
+
+    useEffect(() => {
+        if (!authed) return;
+        // The red badge is a lightweight "new notifications exist" indicator.
+        // (We don't track per-user read state yet.)
+        const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(1));
+        const unsub = onSnapshot(q, (snap) => setHasNotifications(!snap.empty));
+        return () => unsub();
+    }, [authed]);
 
     if (!checked) {
         return (
-            <View style={{ flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center' }}>
-                <ActivityIndicator color="#6366f1" size="large" />
+            <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator color={C.primary} size="large" />
             </View>
         );
     }
 
-    if (!authed) return null;
+    // On web, logout flow performs a single hard refresh from profile screen.
+    // Returning null here avoids an extra redirect animation/flicker.
+    if (!authed) {
+        if (Platform.OS === 'web') return null;
+        return <Redirect href="/" />;
+    }
 
     return (
         <Tabs
             screenOptions={{
-                tabBarActiveTintColor: '#6366f1',
-                tabBarInactiveTintColor: '#94a3b8',
+                tabBarActiveTintColor: C.primary,
+                tabBarInactiveTintColor: C.inactive,
                 tabBarStyle: {
-                    backgroundColor: '#1e293b',
-                    borderTopColor: '#334155',
-                    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
-                    height: 60,
+                    backgroundColor: C.tabBar,
+                    borderTopColor: C.tabBorder,
+                    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+                    height: Platform.OS === 'ios' ? 80 : 64,
                 },
-                headerStyle: { backgroundColor: '#1e293b' },
-                headerTintColor: '#fff',
-                headerTitleStyle: { fontWeight: 'bold' },
+                headerStyle: {
+                    backgroundColor: C.header,
+                    elevation: 0,
+                    shadowOpacity: 0,
+                    borderBottomWidth: 2,
+                    borderBottomColor: C.headerBorder,
+                },
+                headerTintColor: C.text,
+                headerTitleStyle: { fontWeight: '900', fontSize: 18 },
+                headerRight: () => (
+                    <TouchableOpacity
+                        onPress={() => router.push('/settings')}
+                        style={{ marginRight: 18, padding: 4 }}
+                    >
+                        <Ionicons name="settings-outline" size={24} color={C.text} />
+                    </TouchableOpacity>
+                ),
             }}>
+
             <Tabs.Screen
                 name="index"
                 options={{
@@ -59,6 +105,25 @@ export default function TabLayout() {
                 options={{
                     title: 'History',
                     tabBarIcon: ({ color }) => <Ionicons name="time" size={24} color={color} />,
+                }}
+            />
+            <Tabs.Screen
+                name="notifications"
+                options={{
+                    title: 'Notifications',
+                    tabBarIcon: ({ color }) => (
+                        <View>
+                            <Ionicons name="notifications" size={24} color={color} />
+                            {hasNotifications && (
+                                <View style={{
+                                    position: 'absolute', top: -2, right: -6,
+                                    width: 10, height: 10, borderRadius: 5,
+                                    backgroundColor: '#EF4444',
+                                    borderWidth: 1.5, borderColor: '#FFFFFF',
+                                }} />
+                            )}
+                        </View>
+                    ),
                 }}
             />
             <Tabs.Screen
