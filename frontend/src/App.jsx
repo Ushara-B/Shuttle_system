@@ -13,6 +13,9 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Auth gate for the web dashboard:
+    // - listen to Firebase Auth state
+    // - read custom claim `role` to decide which dashboard to show
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUser(user);
@@ -33,18 +36,24 @@ function App() {
   return (
     <Router>
       <Routes>
+        {/* Login route:
+            - if logged out => show login form
+            - if logged in => route to admin/driver based on role */}
         <Route path="/" element={!user ? <Login /> : <Navigate to={role === 'admin' ? '/admin' : '/driver'} />} />
 
         <Route
           path="/admin"
+          // Guard admin routes explicitly (prevents direct URL access by drivers).
           element={user && role === 'admin' ? <AdminDashboard /> : <Navigate to="/" />}
         />
 
         <Route
           path="/driver"
+          // Guard driver routes explicitly (prevents direct URL access by admins/students).
           element={user && role === 'driver' ? <DriverDashboard /> : <Navigate to="/" />}
         />
 
+        {/* Catch-all: keep routing simple for this app */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>

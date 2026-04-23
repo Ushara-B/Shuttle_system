@@ -12,19 +12,21 @@ export default function HistoryScreen() {
         const studentUid = auth.currentUser?.uid;
         if (!studentUid) return;
 
-        // Fallback to sorting locally if composite index is missing
+        // Query is intentionally minimal to avoid needing composite indexes.
+        // We sort locally by timestamp to keep the app working even if Firestore indexes aren't created yet.
         const q = query(
             collection(db, "payments"),
             where("studentUid", "==", studentUid)
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
+            // Real-time transaction history (top-ups + fare deductions).
             const history = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
 
-            // Sort locally (descending timestamp) to bypass the need for a composite index
+            // Sort locally (descending timestamp) to bypass the need for a composite index.
             history.sort((a: any, b: any) => {
                 const timeA = a.timestamp?.seconds || 0;
                 const timeB = b.timestamp?.seconds || 0;

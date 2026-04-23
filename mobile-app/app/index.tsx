@@ -5,6 +5,9 @@ import { auth } from '../firebase';
 import { Stack, Redirect } from 'expo-router';
 
 export default function AuthScreen() {
+    // This screen is both the login form and the "auth gate":
+    // - If already authenticated, we immediately redirect into the tab navigator.
+    // - Otherwise we show the sign-in UI.
     const [user, setUser] = useState<User | null>(null);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -13,6 +16,7 @@ export default function AuthScreen() {
     const [error, setError] = useState('');
 
     useEffect(() => {
+        // Keep auth state in sync with Firebase so the app can react instantly to login/logout.
         const unsubscribe = onAuthStateChanged(auth, (u) => {
             setUser(u);
             setAuthLoading(false);
@@ -21,6 +25,7 @@ export default function AuthScreen() {
     }, []);
 
     const handleLogin = async () => {
+        // Firebase Auth is the source of truth for credentials.
         setLoading(true);
         setError('');
         try {

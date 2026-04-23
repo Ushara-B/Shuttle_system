@@ -35,6 +35,10 @@ const FIELDS: Field[] = [
 ];
 
 export default function ProfileScreen() {
+    // Profile is split into:
+    // - Personal info (stored in Firestore users/{uid})
+    // - Home location (stored to support distance-based fare calculation)
+    // - Account security (email/password updates via Firebase Auth)
     const [user, setUser] = useState(auth.currentUser);
 
     const [form, setForm] = useState<Record<string, string>>({
@@ -55,6 +59,7 @@ export default function ProfileScreen() {
     });
 
     useEffect(() => {
+        // Keep screen reactive to sign-in/out without navigating manually.
         const unsub = onAuthStateChanged(auth, (u) => {
             setUser(u);
         });
@@ -64,6 +69,8 @@ export default function ProfileScreen() {
     useEffect(() => { loadProfile(); }, [user?.uid]);
 
     const loadProfile = async () => {
+        // Pull extended profile fields from Firestore.
+        // Auth profile holds displayName/email; this doc stores app-specific details.
         if (!user?.uid) return;
         try {
             const snap = await getDoc(doc(db, 'users', user.uid));
@@ -87,6 +94,7 @@ export default function ProfileScreen() {
     };
 
     const handleGetLocation = async () => {
+        // Save a "homeLocation" so the backend can calculate fare when driver GPS is unavailable.
         setLocLoading(true);
         try {
             const loc = await getCurrentLocation();
@@ -110,6 +118,7 @@ export default function ProfileScreen() {
     };
 
     const handleSave = async () => {
+        // Update profile details in Firestore and keep Firebase Auth displayName consistent.
         if (!user?.uid) return;
         if (!form.fullName.trim()) {
             setAccountMsg({ type: 'error', text: 'Full name is required.' });
@@ -135,6 +144,8 @@ export default function ProfileScreen() {
     };
 
     const handleSecuritySave = async () => {
+        // Sensitive updates (email/password) require recent login.
+        // We reauthenticate using the current password to satisfy Firebase security.
         if (!user) return;
         const email = securityForm.email.trim().toLowerCase();
         const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -190,6 +201,8 @@ export default function ProfileScreen() {
     };
 
     const handleLogout = async () => {
+        // Sign out clears the Firebase session.
+        // On web we then do a hard navigation to reset router state cleanly.
         setLoggingOut(true);
         try {
             await signOut(auth);

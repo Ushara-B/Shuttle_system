@@ -6,10 +6,14 @@ import { View, Image, Text, StyleSheet, Animated } from 'react-native';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+    // Root stack layout:
+    // - shows a short branded splash
+    // - then mounts expo-router Stack (login + tabs + settings)
     const [appIsReady, setAppIsReady] = useState(false);
     const fadeAnim = useState(() => new Animated.Value(0))[0];
 
     useEffect(() => {
+        // Simulate a short splash load so the brand screen is visible even on fast devices.
         async function prepare() {
             try {
                 await new Promise(resolve => setTimeout(resolve, 1800));
@@ -24,6 +28,7 @@ export default function RootLayout() {
 
     useEffect(() => {
         if (appIsReady) {
+            // Keep splash hidden until app is ready, then fade in the UI.
             SplashScreen.hideAsync();
             Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
         }

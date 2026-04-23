@@ -7,6 +7,7 @@
  * @returns {number} Distance in km rounded to 2 decimals
  */
 function haversineDistance(lat1, lon1, lat2, lon2) {
+    // We keep this tiny and dependency-free because it's used inside backend transactions.
     const R = 6371; // Earth's radius in km
     const toRad = (v) => (v * Math.PI) / 180;
 
@@ -21,6 +22,7 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 // Campus coordinates
+// Single source of truth for distance-to-campus computations in backend fare logic.
 const CAMPUS_COORDS = { lat: 6.9036, lng: 79.9547 };
 
 module.exports = { haversineDistance, CAMPUS_COORDS };

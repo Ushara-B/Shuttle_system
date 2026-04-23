@@ -7,6 +7,8 @@ export const CAMPUS_COORDS = { latitude: 6.9036, longitude: 79.9547 };
  * Request location permission and get current GPS coordinates.
  */
 export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+    // We request foreground-only permission because the app only needs location
+    // while the user is actively using it (wallet screen to estimate fare / save home location).
     try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
@@ -35,6 +37,8 @@ export function calculateDistance(
     lat1: number, lon1: number,
     lat2: number, lon2: number
 ): number {
+    // Deterministic distance helper used by UI only.
+    // The backend is the source of truth for charging; this is a user-facing estimate.
     const R = 6371; // Earth radius in km
     const toRad = (v: number) => (v * Math.PI) / 180;
 
@@ -52,6 +56,7 @@ export function calculateDistance(
  * Calculate fare based on distance and price per km.
  */
 export function calculateFare(distanceKm: number, pricePerKm: number): number {
+    // Used for local display only (estimate).
     return Math.round(distanceKm * pricePerKm);
 }
 
@@ -59,5 +64,6 @@ export function calculateFare(distanceKm: number, pricePerKm: number): number {
  * Get distance from current location to campus.
  */
 export function getDistanceToCampus(latitude: number, longitude: number): number {
+    // Convenience helper for wallet screen.
     return calculateDistance(latitude, longitude, CAMPUS_COORDS.latitude, CAMPUS_COORDS.longitude);
 }

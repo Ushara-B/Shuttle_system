@@ -39,6 +39,8 @@ const formatDirection = (dir) => {
 };
 
 const buildLastNDays = (payments, days = 7) => {
+  // Build chart data for the last N calendar days.
+  // We key by date string to avoid timezone surprises in charts.
   const map = new Map();
   for (let i = days - 1; i >= 0; i -= 1) {
     const d = new Date();
@@ -54,6 +56,7 @@ const buildLastNDays = (payments, days = 7) => {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Keep password policy aligned with backend `/api/admin/create-user` rules.
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
 const SimpleBars = ({ data }) => {
@@ -73,6 +76,7 @@ const SimpleBars = ({ data }) => {
 };
 
 const AdminDashboard = () => {
+  // Limit admin broadcast message size to keep notifications concise on mobile UI.
   const NOTE_WORD_LIMIT = 60;
   const [activeSection, setActiveSection] = useState('overview');
   const [users, setUsers] = useState([]);
@@ -109,6 +113,8 @@ const AdminDashboard = () => {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   useEffect(() => {
+    // Real-time admin console: users, wallets, payments, pricing, notifications.
+    // Keeping these listeners active makes the dashboard "live" without manual refresh.
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       setUsers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
@@ -156,6 +162,8 @@ const AdminDashboard = () => {
   }, [users]);
 
   const getStudentLabel = (uid) => {
+    // Prefer a human label everywhere we reference students (dropdowns/tables).
+    // Fallback order: displayName -> email -> uid, and append studentId if known.
     if (!uid) return 'Unknown Student';
     const user = userMap[uid];
     const wallet = walletMap[uid];
@@ -286,6 +294,8 @@ const AdminDashboard = () => {
 
   const handleAddStudent = async (e) => {
     e.preventDefault();
+    // This page creates student accounts via backend admin API.
+    // We validate early so admins get immediate feedback.
     const email = addStudentForm.email.trim().toLowerCase();
     const password = addStudentForm.password;
     if (!addStudentForm.displayName.trim()) return showMessage('error', 'Student name is required');
@@ -315,6 +325,7 @@ const AdminDashboard = () => {
   };
 
   const openStudentModal = (uid) => {
+    // Opens a modal that shows student details + wallet + recent activity.
     setSelectedStudentUid(uid);
     setStudentTopupAmount('');
     setStudentModalOpen(true);
@@ -322,6 +333,7 @@ const AdminDashboard = () => {
 
   const handleStudentTopup = async (e) => {
     e.preventDefault();
+    // Use a clientRequestId to prevent duplicate top-ups on double-click/network retries.
     if (!selectedStudentUid) return;
     if (studentTopupSubmitting) return;
     const amount = Number(studentTopupAmount);
@@ -348,6 +360,8 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteUser = async (uid) => {
+    // Deletes Firebase Auth user + removes user/wallet documents.
+    // Payments history is intentionally kept for audit.
     if (!uid) return;
     if (deleteSubmitting) return;
     const user = userMap[uid];

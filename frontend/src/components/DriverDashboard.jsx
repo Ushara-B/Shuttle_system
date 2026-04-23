@@ -23,7 +23,8 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
-// Fix Leaflet default marker icons
+// Leaflet needs explicit marker icon URLs when bundled.
+// Without this, markers can appear as broken images in production builds.
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -46,6 +47,8 @@ const scanIcon = new L.Icon({
 });
 
 const buildLastNDays = (payments, days = 7) => {
+    // Build driver revenue trend for a mini 7-day chart.
+    // Uses dateKey to keep aggregation stable.
     const map = new Map();
     for (let i = days - 1; i >= 0; i -= 1) {
         const d = new Date();
@@ -69,8 +72,10 @@ const formatDirection = (dir) => {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Password rule mirrors admin/backend policy so users can't pick unsupported passwords.
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 const mapAuthError = (error) => {
+    // Convert Firebase Auth error codes into user-friendly messages.
     const code = error?.code || '';
     if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') return 'Current password is incorrect.';
     if (code === 'auth/too-many-requests') return 'Too many attempts. Please wait and try again.';
@@ -107,6 +112,7 @@ const DriverDashboard = () => {
     const [editingPrice, setEditingPrice] = useState(false);
     const [priceInput, setPriceInput] = useState(pricePerKm);
     const [direction, setDirection] = useState(() => {
+        // Direction is driver-selected and persisted locally (per-device) to reduce clicks.
         return localStorage.getItem('shuttle_direction') || 'home-to-campus';
     });
     const [status, setStatus] = useState(null);
@@ -125,6 +131,7 @@ const DriverDashboard = () => {
     useEffect(() => {
         const q = query(collection(db, 'payments'), orderBy('timestamp', 'desc'));
         return onSnapshot(q, (snapshot) => {
+            // Driver dashboard stats are derived from Firestore payments (fare-deduction only).
             let revenue = 0, trips = 0;
             const markers = [];
             const driverTrips = [];
@@ -228,7 +235,7 @@ const DriverDashboard = () => {
         setLastResult(null);
 
         // Try to get the driver's GPS location for distance calculation.
-        // If unavailable, the backend will fall back to the student's saved home location.
+        // If unavailable, backend falls back to student's saved home location.
         let lat = null, lng = null;
         try {
             const pos = await new Promise((resolve, reject) => {

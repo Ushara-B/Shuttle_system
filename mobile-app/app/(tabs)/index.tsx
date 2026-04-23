@@ -22,6 +22,7 @@ export default function WalletScreen() {
         const studentUid = auth.currentUser?.uid;
         if (!studentUid) return;
 
+        // Wallet balance is the primary real-time value for students.
         const unsubscribe = onSnapshot(doc(db, "wallets", studentUid), (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -35,7 +36,8 @@ export default function WalletScreen() {
         return () => unsubscribe();
     }, []);
 
-    // Get GPS and save as homeLocation for backend fare calculation
+    // Capture home location to improve backend fare calculation.
+    // If driver GPS is missing, backend can compute distance using this saved location.
     useEffect(() => {
         (async () => {
             const loc = await getCurrentLocation();

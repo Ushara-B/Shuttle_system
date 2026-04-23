@@ -14,8 +14,14 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
+// Basic input validation for admin-driven account creation.
+// (We still rely on Firebase Auth for canonical validation; this is a fast fail for UX.)
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Strong password policy used across admin + user profile flows.
+// 8+ chars, at least one lowercase, uppercase, number, and symbol.
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+// Business rule: allow limited overdraft to keep service usable.
+// A scan is allowed as long as the resulting wallet balance stays >= MIN_WALLET_BALANCE.
 const MIN_WALLET_BALANCE = -1000;
 
 const buildGeneratedStudentId = () => `S${Math.floor(1000 + Math.random() * 9000)}`;
@@ -42,6 +48,8 @@ const getStudentUidFromIdentifier = async (identifier) => {
 };
 
 const ensureUniqueStudentId = async (preferredStudentId) => {
+  // Student IDs are used for scanning/lookup. Enforce uniqueness at creation time
+  // to avoid ambiguous "same studentId" lookups later.
   let candidate = preferredStudentId || buildGeneratedStudentId();
   let attempts = 0;
   while (attempts < 10) {
@@ -59,6 +67,8 @@ const ensureUniqueStudentId = async (preferredStudentId) => {
 };
 
 const verifyFirebaseToken = async (req) => {
+  // Used for endpoints where any signed-in user is allowed (e.g., driver pricing / scan).
+  // Returns null instead of throwing so callers can stay backward-compatible.
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const idToken = authHeader.split('Bearer ')[1];
@@ -70,6 +80,8 @@ const verifyFirebaseToken = async (req) => {
 };
 
 const verifyAdmin = async (req, res, next) => {
+  // Admin authorization gate.
+  // Prefer custom claims for speed; fall back to Firestore "users/{uid}.role" for reliability.
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).send({ error: 'Unauthorized: No token' });
@@ -142,6 +154,7 @@ app.post('/api/admin/create-user', verifyAdmin, async (req, res) => {
 
     // 4. Initialize Wallet for Students
     if (role === 'student') {
+      // Wallet is only created for students since drivers/admins don't have balances.
       const generatedId = await ensureUniqueStudentId(studentId);
       await db.collection('wallets').doc(userRecord.uid).set({
         studentId: generatedId,
@@ -168,7 +181,7 @@ app.post('/api/admin/delete-user', verifyAdmin, async (req, res) => {
     // Delete Auth user first (prevents further logins).
     await admin.auth().deleteUser(uid);
 
-    // Best-effort cleanup of Firestore docs (audit/payment history remains).
+    // Best-effort cleanup of Firestore docs (audit/payment history remains in `payments`).
     await db.collection('users').doc(uid).delete().catch(() => {});
     await db.collection('wallets').doc(uid).delete().catch(() => {});
 
@@ -277,6 +290,7 @@ app.post('/api/transactions/scan', async (req, res) => {
     const driverUid = decoded?.uid || driverUidFromBody || 'system';
 
     // === DUPLICATE SCAN CHECK ===
+    // Prevent charging multiple times per day per direction.
     // Get today's date key (e.g., "2026-04-22")
     const today = new Date().toISOString().split('T')[0];
     const tripDirection = direction || 'unknown';
@@ -299,6 +313,7 @@ app.post('/api/transactions/scan', async (req, res) => {
     }
 
     // === FARE CALCULATION ===
+    // Priority: request override -> per-driver default -> global default -> minimum flat fare.
     let finalFare = farePrice || null;
     let distanceKm = null;
     let effectivePricePerKm = null;
@@ -323,6 +338,7 @@ app.post('/api/transactions/scan', async (req, res) => {
     }
 
     // Resolve GPS coords: prefer driver-sent coords, fall back to student's saved homeLocation
+    // so fares can still be computed if driver's GPS is unavailable.
     let resolvedLat = latitude || null;
     let resolvedLng = longitude || null;
 
@@ -366,6 +382,7 @@ app.post('/api/transactions/scan', async (req, res) => {
 
       const currentBalance = walletDoc.data().balance || 0;
       if ((currentBalance - finalFare) < MIN_WALLET_BALANCE) {
+        // Enforce overdraft floor.
         throw new Error(`Insufficient balance. Minimum allowed is Rs.${MIN_WALLET_BALANCE}. Need Rs.${finalFare}, have Rs.${currentBalance}`);
       }
 

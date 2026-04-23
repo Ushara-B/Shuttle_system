@@ -30,6 +30,8 @@ type Notif = {
 };
 
 const getRelativeTime = (value: any) => {
+    // Turn a Firestore Timestamp into a short "relative" label.
+    // This keeps the UI readable without needing heavy date libraries.
     if (!value?.toDate) return 'Just now';
     const date = value.toDate();
     const diffMs = Date.now() - date.getTime();
@@ -48,6 +50,8 @@ export default function NotificationsScreen() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        // Notifications are broadcast by admins and stored in Firestore.
+        // We listen in real time so students see updates instantly.
         const studentUid = auth.currentUser?.uid;
         if (!studentUid) {
             setLoading(false);

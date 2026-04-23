@@ -84,6 +84,8 @@ const SECTIONS: { title: string; items: SettingsItem[] }[] = [
 ];
 
 export default function SettingsScreen() {
+    // This is a placeholder settings hub for student users.
+    // Most actions are intentionally "Coming Soon" so we can ship the core wallet + scan flow first.
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {SECTIONS.map((section) => (

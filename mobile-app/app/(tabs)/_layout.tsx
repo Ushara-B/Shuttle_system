@@ -18,12 +18,16 @@ const C = {
 };
 
 export default function TabLayout() {
+    // Tab layout is guarded by Firebase auth:
+    // - While checking auth, we show a loader.
+    // - When logged out, tabs are not rendered (and native redirects to login).
     const [checked, setChecked] = useState(false);
     const [authed, setAuthed] = useState(false);
     const [hasNotifications, setHasNotifications] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
+        // Keep `authed` in sync so logout immediately blocks access to tabs.
         const unsub = onAuthStateChanged(auth, (user) => {
             if (user) {
                 setAuthed(true);
@@ -37,6 +41,8 @@ export default function TabLayout() {
 
     useEffect(() => {
         if (!authed) return;
+        // The red badge is a lightweight "new notifications exist" indicator.
+        // (We don't track per-user read state yet.)
         const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(1));
         const unsub = onSnapshot(q, (snap) => setHasNotifications(!snap.empty));
         return () => unsub();
