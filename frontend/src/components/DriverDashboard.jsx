@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { Html5Qrcode } from 'html5-qrcode';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -59,6 +60,13 @@ const buildLastNDays = (payments, days = 7) => {
     return [...map.entries()].map(([day, value]) => ({ day: day.slice(5), value }));
 };
 
+const formatDirection = (dir) => {
+    if (!dir) return '-';
+    if (dir === 'home-to-campus') return 'Home → Campus';
+    if (dir === 'campus-to-home') return 'Campus → Home';
+    return dir;
+};
+
 const MiniBars = ({ data }) => {
     const max = Math.max(...data.map((d) => d.value), 1);
     return (
@@ -77,6 +85,7 @@ const MiniBars = ({ data }) => {
 
 const DriverDashboard = () => {
     const [activeSection, setActiveSection] = useState('scan');
+    const [currentUid, setCurrentUid] = useState(() => auth.currentUser?.uid || null);
     const [pricePerKm, setPricePerKm] = useState(() => {
         const saved = localStorage.getItem('shuttle_pricePerKm');
         return saved ? Number(saved) : 10;
@@ -125,6 +134,11 @@ const DriverDashboard = () => {
     }, []);
 
     useEffect(() => {
+        const unsub = onAuthStateChanged(auth, (user) => setCurrentUid(user?.uid || null));
+        return () => unsub();
+    }, []);
+
+    useEffect(() => {
         if (!auth.currentUser?.uid) return;
         const unsub = onSnapshot(doc(db, 'users', auth.currentUser.uid), (snap) => {
             if (!snap.exists()) return;
@@ -137,6 +151,16 @@ const DriverDashboard = () => {
         });
         return () => unsub();
     }, []);
+
+    useEffect(() => {
+        // Persist direction per-driver to avoid cross-account collisions on shared devices.
+        const uid = currentUid;
+        if (!uid) return;
+        const perDriverKey = `shuttle_direction_${uid}`;
+        const saved = localStorage.getItem(perDriverKey) || localStorage.getItem('shuttle_direction');
+        if (saved && saved !== direction) setDirection(saved);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUid]);
 
     const startScanner = async () => {
         if (!scannerRef.current) return;
@@ -235,13 +259,6 @@ const DriverDashboard = () => {
         }
     };
 
-    const handleSetPrice = (e) => {
-        e.preventDefault();
-        setPricePerKm(priceInput);
-        localStorage.setItem('shuttle_pricePerKm', priceInput);
-        setEditingPrice(false);
-    };
-
     const handleSaveDriverDefault = async (e) => {
         e.preventDefault();
         const value = Number(priceInput);
@@ -270,6 +287,8 @@ const DriverDashboard = () => {
     const handleDirectionChange = (dir) => {
         setDirection(dir);
         localStorage.setItem('shuttle_direction', dir);
+        const uid = currentUid;
+        if (uid) localStorage.setItem(`shuttle_direction_${uid}`, dir);
     };
 
     const chartData = useMemo(() => buildLastNDays(recentTrips), [recentTrips]);
@@ -279,18 +298,18 @@ const DriverDashboard = () => {
         scan: 'Live Scan',
         history: 'Trip History',
         analytics: 'Analytics',
-        settings: 'Fare Settings',
+        settings: 'Settings',
     };
 
     const nav = [
         { id: 'scan', label: 'Live Scan', icon: Scan },
         { id: 'history', label: 'Trip History', icon: History },
         { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-        { id: 'settings', label: 'Fare Settings', icon: Settings },
+        { id: 'settings', label: 'Settings', icon: Settings },
     ];
 
     return (
-        <div className="admin-shell">
+        <div className="admin-shell driver-shell">
             <aside className="admin-sidebar">
                 <div className="admin-brand"><Bus size={18} /> Driver Workspace</div>
                 <div className="admin-nav">
@@ -340,13 +359,6 @@ const DriverDashboard = () => {
                     <section className="admin-grid-2">
                         <div className="admin-panel-card">
                             <div className="admin-card-title"><LayoutDashboard size={18} /> Live Trip Scan</div>
-                            <div className="direction-card">
-                                <div className="direction-label">Trip Direction</div>
-                                <div className="direction-toggle">
-                                    <button className={`dir-btn ${direction === 'home-to-campus' ? 'active' : ''}`} onClick={() => handleDirectionChange('home-to-campus')}>Home to Campus</button>
-                                    <button className={`dir-btn ${direction === 'campus-to-home' ? 'active' : ''}`} onClick={() => handleDirectionChange('campus-to-home')}>Campus to Home</button>
-                                </div>
-                            </div>
                             <div className="scanner-card">
                                 <div className={`scanner-viewfinder ${scanning ? 'active' : ''}`}>
                                     <div className="corner tl" /><div className="corner tr" /><div className="corner bl" /><div className="corner br" />
@@ -401,7 +413,7 @@ const DriverDashboard = () => {
                                     {recentTrips.map((t) => (
                                         <tr key={t.id}>
                                             <td>{t.studentName || t.studentUid}</td>
-                                            <td>{t.direction || '-'}</td>
+                                            <td>{formatDirection(t.direction)}</td>
                                             <td>{t.distanceKm ? `${t.distanceKm} km` : '-'}</td>
                                             <td>Rs. {Math.abs(t.amount || 0)}</td>
                                             <td>{t.dateKey || (t.timestamp?.toDate ? t.timestamp.toDate().toISOString().slice(0, 10) : '-')}</td>
@@ -433,9 +445,21 @@ const DriverDashboard = () => {
                 {activeSection === 'settings' && (
                     <section className="admin-panel-card">
                         <div className="admin-section-header">
-                            <h2>Fare Settings</h2>
-                            <p>Set your own default Rs/km, synchronized with backend.</p>
+                            <h2>Settings</h2>
+                            <p>Manage trip direction and fare pricing.</p>
                         </div>
+
+                        <div className="direction-card" style={{ marginBottom: 16 }}>
+                            <div className="direction-label">Default Trip Direction</div>
+                            <div className="direction-toggle">
+                                <button className={`dir-btn ${direction === 'home-to-campus' ? 'active' : ''}`} onClick={() => handleDirectionChange('home-to-campus')}>Home to Campus</button>
+                                <button className={`dir-btn ${direction === 'campus-to-home' ? 'active' : ''}`} onClick={() => handleDirectionChange('campus-to-home')}>Campus to Home</button>
+                            </div>
+                            <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: 8 }}>
+                                Current: <strong>{formatDirection(direction)}</strong>
+                            </div>
+                        </div>
+
                         <div className="fare-badge">
                             <div className="fare-badge-label">Price Per Kilometer</div>
                             {editingPrice ? (
@@ -451,12 +475,6 @@ const DriverDashboard = () => {
                                 </div>
                             )}
                         </div>
-                        {!editingPrice && (
-                            <form onSubmit={handleSetPrice} className="admin-inline-form">
-                                <input type="number" min="1" value={priceInput} onChange={(e) => setPriceInput(Number(e.target.value))} />
-                                <button className="admin-primary-btn inline" type="submit">Apply Local</button>
-                            </form>
-                        )}
                     </section>
                 )}
             </main>

@@ -904,7 +904,8 @@ button:disabled {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.5);
+  color: #334155;
+  font-weight: 700;
   margin-bottom: 0.75rem;
 }
 
@@ -916,23 +917,38 @@ button:disabled {
 .dir-btn {
   flex: 1;
   padding: 0.75rem 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
   border-radius: 0.75rem;
   font-size: 0.85rem;
-  color: var(--text-dim);
+  color: #1e293b;
+  font-weight: 600;
   transition: all 0.2s;
 }
 
 .dir-btn.active {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: var(--primary);
+  background: #4f46e5;
+  border-color: #4338ca;
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
+  box-shadow: 0 6px 14px -6px rgba(79, 70, 229, 0.55);
 }
 
 .dir-btn:hover {
-  opacity: 0.9;
+  background: #eef2ff;
+  border-color: #6366f1;
+  color: #312e81;
+}
+
+.dir-btn.active:hover {
+  background: #4338ca;
+  border-color: #3730a3;
+  color: #ffffff;
+}
+
+.dir-btn:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
 }
 
 /* Map Card */
@@ -972,6 +988,46 @@ button:disabled {
   display: grid;
   grid-template-columns: 280px 1fr;
   background: var(--bg);
+}
+
+/* Driver-specific shell behavior */
+.driver-shell {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.driver-shell .admin-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #1e1b4b 0%, #312e81 50%, #3730a3 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.driver-shell .admin-brand {
+  color: #e0e7ff;
+}
+
+.driver-shell .admin-nav-btn {
+  color: rgba(226, 232, 240, 0.88);
+  border-color: transparent;
+}
+
+.driver-shell .admin-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.driver-shell .admin-nav-btn.active {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+.driver-shell .admin-content {
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .admin-sidebar {

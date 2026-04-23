@@ -3,7 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { Platform, ActivityIndicator, View, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../firebase';
+import { auth, db } from '../../firebase';
+import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 
 const C = {
     bg: '#FFFFFF',
@@ -19,6 +20,7 @@ const C = {
 export default function TabLayout() {
     const [checked, setChecked] = useState(false);
     const [authed, setAuthed] = useState(false);
+    const [hasNotifications, setHasNotifications] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -28,7 +30,14 @@ export default function TabLayout() {
             setChecked(true);
         });
         return () => unsub();
-    }, []);
+    }, [router]);
+
+    useEffect(() => {
+        if (!authed) return;
+        const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(1));
+        const unsub = onSnapshot(q, (snap) => setHasNotifications(!snap.empty));
+        return () => unsub();
+    }, [authed]);
 
     if (!checked) {
         return (
@@ -91,13 +100,14 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => (
                         <View>
                             <Ionicons name="notifications" size={24} color={color} />
-                            {/* Unread badge */}
-                            <View style={{
-                                position: 'absolute', top: -2, right: -6,
-                                width: 10, height: 10, borderRadius: 5,
-                                backgroundColor: '#EF4444',
-                                borderWidth: 1.5, borderColor: '#FFFFFF',
-                            }} />
+                            {hasNotifications && (
+                                <View style={{
+                                    position: 'absolute', top: -2, right: -6,
+                                    width: 10, height: 10, borderRadius: 5,
+                                    backgroundColor: '#EF4444',
+                                    borderWidth: 1.5, borderColor: '#FFFFFF',
+                                }} />
+                            )}
                         </View>
                     ),
                 }}

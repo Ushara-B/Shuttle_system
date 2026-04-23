@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { auth, db } from '../firebase';
-import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { addDoc, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import {
   Users, Wallet, Route, UserPlus, Search, LogOut, Save, History,
   Settings, UserCog, LayoutDashboard, BarChart3, Filter, ShieldCheck,
@@ -14,6 +14,7 @@ const navItems = [
   { id: 'users', label: 'Students & Users', icon: Users },
   { id: 'tokens', label: 'Tokens', icon: Ticket },
   { id: 'trips', label: 'Shuttle Services', icon: Bus },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'history', label: 'Service History', icon: History },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'governance', label: 'Governance', icon: ShieldCheck },
@@ -26,6 +27,13 @@ const dateKey = (value) => {
   if (typeof value === 'string') return value;
   if (value.toDate) return value.toDate().toISOString().slice(0, 10);
   return 'N/A';
+};
+
+const formatDirection = (dir) => {
+  if (!dir) return '-';
+  if (dir === 'home-to-campus') return 'Home → Campus';
+  if (dir === 'campus-to-home') return 'Campus → Home';
+  return dir;
 };
 
 const buildLastNDays = (payments, days = 7) => {
@@ -60,6 +68,7 @@ const SimpleBars = ({ data }) => {
 };
 
 const AdminDashboard = () => {
+  const NOTE_WORD_LIMIT = 60;
   const [activeSection, setActiveSection] = useState('overview');
   const [users, setUsers] = useState([]);
   const [wallets, setWallets] = useState([]);
@@ -80,6 +89,9 @@ const AdminDashboard = () => {
   const [tokenForm, setTokenForm] = useState({ studentUid: '', amount: '' });
   const [topupSubmitting, setTopupSubmitting] = useState(false);
   const [driverPrices, setDriverPrices] = useState({});
+  const [notices, setNotices] = useState([]);
+  const [noticeSubmitting, setNoticeSubmitting] = useState(false);
+  const [noticeForm, setNoticeForm] = useState({ title: '', note: '' });
 
   useEffect(() => {
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -97,11 +109,15 @@ const AdminDashboard = () => {
       setGlobalPricePerKm(safePrice);
       setGlobalPriceInput(safePrice);
     });
+    const unsubscribeNotices = onSnapshot(query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(30)), (snapshot) => {
+      setNotices(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
     return () => {
       unsubscribeUsers();
       unsubscribeWallets();
       unsubscribePayments();
       unsubscribePricing();
+      unsubscribeNotices();
     };
   }, []);
 
@@ -183,6 +199,7 @@ const AdminDashboard = () => {
     users: 'Students & Users',
     tokens: 'Token Management',
     trips: 'Shuttle Services',
+    notifications: 'Notifications',
     history: 'Service History',
     analytics: 'Analytics',
     governance: 'Governance',
@@ -274,6 +291,43 @@ const AdminDashboard = () => {
       showMessage('success', 'Driver price updated');
     } catch (error) {
       showMessage('error', error.message);
+    }
+  };
+
+  const noticeWordCount = useMemo(() => {
+    if (!noticeForm.note.trim()) return 0;
+    return noticeForm.note.trim().split(/\s+/).length;
+  }, [noticeForm.note]);
+
+  const applyNoticeTemplate = (template) => {
+    setNoticeForm(template);
+  };
+
+  const handleSendNotification = async (e) => {
+    e.preventDefault();
+    if (noticeSubmitting) return;
+    const title = noticeForm.title.trim();
+    const note = noticeForm.note.trim();
+    if (!title) return showMessage('error', 'Notification title is required');
+    if (!note) return showMessage('error', 'Notification note is required');
+    if (noticeWordCount > NOTE_WORD_LIMIT) return showMessage('error', `Note must be ${NOTE_WORD_LIMIT} words or fewer`);
+
+    setNoticeSubmitting(true);
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        title,
+        note,
+        type: 'admin-broadcast',
+        createdAt: serverTimestamp(),
+        createdByUid: auth.currentUser?.uid || 'admin',
+        createdByName: currentName,
+      });
+      setNoticeForm({ title: '', note: '' });
+      showMessage('success', 'Notification sent to students');
+    } catch (error) {
+      showMessage('error', error.message || 'Failed to send notification');
+    } finally {
+      setNoticeSubmitting(false);
     }
   };
 
@@ -611,6 +665,90 @@ const AdminDashboard = () => {
             </section>
           )}
 
+          {activeSection === 'notifications' && (
+            <section>
+              <div className="admin-section-header-modern">
+                <h2>Notification Center</h2>
+                <p>Send live notices to all students in the mobile app.</p>
+              </div>
+              <div className="admin-grid-layout">
+                <div className="admin-panel">
+                  <div className="admin-panel-header">
+                    <Bell size={18} color="#7c3aed" />
+                    <h3>Create Notification</h3>
+                  </div>
+                  <div className="notice-templates">
+                    <button
+                      type="button"
+                      className="modern-btn modern-btn-outline"
+                      onClick={() => applyNoticeTemplate({ title: 'Late Shuttle Notice', note: 'Morning shuttle will be delayed by 15 minutes due to traffic conditions. Please plan your departure accordingly.' })}
+                    >
+                      Late Shuttle
+                    </button>
+                    <button
+                      type="button"
+                      className="modern-btn modern-btn-outline"
+                      onClick={() => applyNoticeTemplate({ title: 'Shuttle Service Cancelled', note: 'Evening shuttle service has been cancelled for today due to vehicle maintenance. Please use alternate transport.' })}
+                    >
+                      Cancel Shuttle
+                    </button>
+                    <button
+                      type="button"
+                      className="modern-btn modern-btn-outline"
+                      onClick={() => applyNoticeTemplate({ title: 'Fare Update', note: 'Shuttle fare has been reduced from tomorrow. Check fare settings for updated price per kilometer.' })}
+                    >
+                      Fare Reduced
+                    </button>
+                  </div>
+
+                  <form className="modern-form-grid" onSubmit={handleSendNotification}>
+                    <input
+                      className="modern-input"
+                      placeholder="Title (required)"
+                      value={noticeForm.title}
+                      onChange={(e) => setNoticeForm((p) => ({ ...p, title: e.target.value }))}
+                      required
+                    />
+                    <textarea
+                      className="modern-textarea"
+                      placeholder="Write your note here..."
+                      value={noticeForm.note}
+                      onChange={(e) => setNoticeForm((p) => ({ ...p, note: e.target.value }))}
+                      rows={5}
+                      required
+                    />
+                    <div className={`notice-word-count ${noticeWordCount > NOTE_WORD_LIMIT ? 'over' : ''}`}>
+                      {noticeWordCount}/{NOTE_WORD_LIMIT} words
+                    </div>
+                    <button type="submit" className="modern-btn" disabled={noticeSubmitting || noticeWordCount > NOTE_WORD_LIMIT}>
+                      {noticeSubmitting ? 'Sending...' : 'Send Notification'}
+                    </button>
+                  </form>
+                </div>
+
+                <div className="admin-panel">
+                  <div className="admin-panel-header">
+                    <History size={18} color="#3b82f6" />
+                    <h3>Recent Notifications</h3>
+                  </div>
+                  <div className="admin-recent-list">
+                    {notices.map((n) => (
+                      <div key={n.id} className="notice-item">
+                        <div className="notice-item-top">
+                          <span className="notice-title">{n.title}</span>
+                          <span className="notice-time">{dateKey(n.createdAt)}</span>
+                        </div>
+                        <p className="notice-body">{n.note}</p>
+                        <span className="notice-meta">by {n.createdByName || 'Admin'}</span>
+                      </div>
+                    ))}
+                    {notices.length === 0 && <div className="modern-empty-cell">No notifications sent yet.</div>}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           {activeSection === 'history' && (
             <section>
               <div className="admin-section-header-modern">
@@ -640,7 +778,7 @@ const AdminDashboard = () => {
                           <td>{p.studentName || getStudentLabel(p.studentUid)}</td>
                           <td>{p.driverUid || '-'}</td>
                           <td><span className="admin-badge badge-blue">{p.type}</span></td>
-                          <td>{p.direction || '-'}</td>
+                          <td>{formatDirection(p.direction)}</td>
                           <td className={p.amount < 0 ? 'neg' : 'pos'}>Rs. {Math.abs(p.amount || 0)}</td>
                           <td>{p.dateKey || dateKey(p.timestamp)}</td>
                         </tr>
