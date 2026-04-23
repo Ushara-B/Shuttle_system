@@ -11,6 +11,10 @@ build/
 dist/
 
 # Firebase
+backend/serviceAccountKey.json
+serviceAccountKey.json
+serviceaccountkey.json
+*service*account*key*.json
 .firebase/
 firebase-debug.log*
 firestore-debug.log*
